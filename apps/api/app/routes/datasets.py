@@ -67,3 +67,18 @@ def get_dataset(dataset_id: str) -> dict:
         "columns": record.columns,
         "target_column": record.target_column,
     }
+
+
+@router.get("")
+def list_datasets() -> dict:
+    datasets = [
+        {
+            "dataset_id": record.dataset_id,
+            "filename": record.filename,
+            "rows": record.rows,
+            "columns": record.columns,
+            "target_column": record.target_column,
+        }
+        for record in store.datasets.values()
+    ]
+    return {"datasets": datasets}

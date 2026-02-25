@@ -39,3 +39,17 @@ def train_model(payload: TrainRequest) -> dict:
         "status": "trained",
         "model_type": payload.model_type,
     }
+
+
+@router.get("")
+def list_models() -> dict:
+    models = [
+        {
+            "model_id": record.model_id,
+            "dataset_id": record.dataset_id,
+            "target_column": record.target_column,
+            "model_type": record.model_type,
+        }
+        for record in store.models.values()
+    ]
+    return {"models": models}

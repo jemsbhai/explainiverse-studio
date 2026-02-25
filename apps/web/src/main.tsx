@@ -36,6 +36,21 @@ type ModelResponse = {
   status: string;
 };
 
+type DatasetCatalogItem = {
+  dataset_id: string;
+  filename: string;
+  rows: number;
+  columns: string[];
+  target_column?: string | null;
+};
+
+type ModelCatalogItem = {
+  model_id: string;
+  dataset_id: string;
+  target_column: string;
+  model_type: string;
+};
+
 type CompatibilityResponse = {
   explainers: string[];
   metrics: string[];
@@ -134,6 +149,22 @@ function App() {
     },
   });
 
+  const datasetsCatalogQuery = useQuery({
+    queryKey: ["datasets-catalog"],
+    queryFn: async () => {
+      const response = await api.get<{ datasets: DatasetCatalogItem[] }>("/datasets");
+      return response.data.datasets;
+    },
+  });
+
+  const modelsCatalogQuery = useQuery({
+    queryKey: ["models-catalog"],
+    queryFn: async () => {
+      const response = await api.get<{ models: ModelCatalogItem[] }>("/models");
+      return response.data.models;
+    },
+  });
+
   const clearHistoryMutation = useMutation({
     mutationFn: async () => {
       await api.delete("/runs");
@@ -156,6 +187,7 @@ function App() {
       setDataset(response);
       setModel(null);
       setTargetColumn(response.columns[0] ?? "target");
+      void datasetsCatalogQuery.refetch();
       setErrorMessage(null);
     },
     onError: () => setErrorMessage("Dataset upload failed."),
@@ -175,6 +207,7 @@ function App() {
     },
     onSuccess: (response) => {
       setModel(response);
+      void modelsCatalogQuery.refetch();
       setErrorMessage(null);
     },
     onError: () => setErrorMessage("Model training failed. Check target column."),
@@ -738,6 +771,35 @@ function App() {
                 ))}
               </div>
             )}
+
+            <h3 style={{ marginTop: 16 }}>Saved assets</h3>
+            <p style={{ color: colors.muted, margin: "6px 0" }}>
+              datasets: {datasetsCatalogQuery.data?.length ?? 0} • models: {modelsCatalogQuery.data?.length ?? 0}
+            </p>
+            {datasetsCatalogQuery.data?.length ? (
+              <details>
+                <summary>Datasets</summary>
+                <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0, display: "grid", gap: 6 }}>
+                  {datasetsCatalogQuery.data.map((item) => (
+                    <li key={item.dataset_id} style={{ fontSize: 12, color: colors.muted }}>
+                      {item.dataset_id} • {item.filename} • {item.rows} rows
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
+            {modelsCatalogQuery.data?.length ? (
+              <details style={{ marginTop: 8 }}>
+                <summary>Models</summary>
+                <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0, display: "grid", gap: 6 }}>
+                  {modelsCatalogQuery.data.map((item) => (
+                    <li key={item.model_id} style={{ fontSize: 12, color: colors.muted }}>
+                      {item.model_id} • {item.model_type} • dataset {item.dataset_id}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            ) : null}
           </aside>
         </div>
       </div>
