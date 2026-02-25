@@ -12,12 +12,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: pnpm
-      - name: Enable pnpm via corepack
-        run: |
-          corepack enable
-          corepack prepare pnpm@9.0.0 --activate
-          pnpm --version
+      - name: Install pnpm
+        run: npm install -g pnpm@9.0.0
+      - name: Verify pnpm
+        run: pnpm --version
       - name: Install
         run: pnpm install --frozen-lockfile
       - name: Typecheck
