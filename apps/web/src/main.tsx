@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   QueryClient,
@@ -19,6 +19,29 @@ type AppState = {
   toggleTheme: () => void;
 };
 
+type DatasetResponse = {
+  dataset_id: string;
+  filename: string;
+  rows: number;
+  columns: string[];
+  preview: Record<string, string | number | null>[];
+  dtypes: Record<string, string>;
+  missing_values: Record<string, number>;
+};
+
+type ModelResponse = {
+  model_id: string;
+  dataset_id: string;
+  model_type: string;
+  status: string;
+};
+
+type CompatibilityResponse = {
+  explainers: string[];
+  metrics: string[];
+  target_column: string;
+};
+
 type RunResponse = {
   run_id: string;
   status: string;
@@ -32,6 +55,8 @@ type RunResponse = {
     metric: string;
     value: number;
     explainer: string;
+    target_column: string;
+    dataset_rows: number;
   };
 };
 
@@ -41,6 +66,13 @@ const api = axios.create({
   baseURL: API_BASE_URL,
   timeout: 10_000,
 });
+
+const SAMPLE_CSV = `target,feature_a,feature_b
+1,0.2,1.2
+0,0.5,0.7
+1,0.9,1.8
+0,0.1,0.3
+`;
 
 const useAppState = create<AppState>((set) => ({
   step: "dataset",
@@ -58,6 +90,13 @@ function App() {
   const { step, setStep, theme, toggleTheme } = useAppState();
   const steps: WizardStep[] = ["dataset", "model", "explainers", "metrics", "results"];
 
+  const [dataset, setDataset] = useState<DatasetResponse | null>(null);
+  const [model, setModel] = useState<ModelResponse | null>(null);
+  const [targetColumn, setTargetColumn] = useState<string>("target");
+  const [selectedExplainer, setSelectedExplainer] = useState<string>("lime");
+  const [selectedMetric, setSelectedMetric] = useState<string>("comprehensiveness");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
   const healthQuery = useQuery({
     queryKey: ["health"],
     queryFn: async () => {
@@ -66,29 +105,76 @@ function App() {
     },
   });
 
+  const uploadDatasetMutation = useMutation({
+    mutationFn: async () => {
+      const data = new FormData();
+      const file = new File([SAMPLE_CSV], "sample.csv", { type: "text/csv" });
+      data.append("file", file);
+      const response = await api.post<DatasetResponse>("/datasets", data);
+      return response.data;
+    },
+    onSuccess: (response) => {
+      setDataset(response);
+      setModel(null);
+      setTargetColumn(response.columns[0] ?? "target");
+      setErrorMessage(null);
+    },
+    onError: () => setErrorMessage("Dataset upload failed."),
+  });
+
+  const trainModelMutation = useMutation({
+    mutationFn: async () => {
+      if (!dataset) {
+        throw new Error("Upload a dataset first");
+      }
+      const response = await api.post<ModelResponse>("/models/train", {
+        dataset_id: dataset.dataset_id,
+        target_column: targetColumn,
+        model_type: "random_forest",
+      });
+      return response.data;
+    },
+    onSuccess: (response) => {
+      setModel(response);
+      setErrorMessage(null);
+    },
+    onError: () => setErrorMessage("Model training failed. Check target column."),
+  });
+
   const explainersQuery = useQuery({
-    queryKey: ["explainers", "model_mock_001", "ds_mock_001"],
+    queryKey: ["explainers", model?.model_id, dataset?.dataset_id],
+    enabled: Boolean(model?.model_id && dataset?.dataset_id),
     queryFn: async () => {
-      const response = await api.get<{
-        explainers: string[];
-        metrics: string[];
-      }>("/explainers/compatible", {
-        params: { model_id: "model_mock_001", dataset_id: "ds_mock_001" },
+      const response = await api.get<CompatibilityResponse>("/explainers/compatible", {
+        params: { model_id: model?.model_id, dataset_id: dataset?.dataset_id },
       });
       return response.data;
     },
   });
 
+  useEffect(() => {
+    if (explainersQuery.data?.explainers.length) {
+      setSelectedExplainer(explainersQuery.data.explainers[0]);
+    }
+    if (explainersQuery.data?.metrics.length) {
+      setSelectedMetric(explainersQuery.data.metrics[0]);
+    }
+  }, [explainersQuery.data]);
+
   const runMutation = useMutation({
     mutationFn: async () => {
+      if (!dataset || !model) {
+        throw new Error("Upload dataset and train model first");
+      }
       const response = await api.post<RunResponse>("/runs", {
-        dataset_id: "ds_mock_001",
-        model_id: "model_mock_001",
-        explainer: "lime",
-        metric: "comprehensiveness",
+        dataset_id: dataset.dataset_id,
+        model_id: model.model_id,
+        explainer: selectedExplainer,
+        metric: selectedMetric,
       });
       return response.data;
     },
+    onError: () => setErrorMessage("Run failed. Confirm model + dataset are ready."),
   });
 
   const isDark = theme === "dark";
@@ -112,7 +198,7 @@ function App() {
         color: colors.text,
       }}
     >
-      <div style={{ maxWidth: 920, margin: "0 auto" }}>
+      <div style={{ maxWidth: 980, margin: "0 auto" }}>
         <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
           <div>
             <h1 style={{ marginBottom: 8 }}>Explainiverse Studio</h1>
@@ -162,9 +248,7 @@ function App() {
           }}
         >
           <h2 style={{ marginTop: 0 }}>Current step: {step}</h2>
-          <p style={{ color: colors.muted, marginBottom: 0 }}>
-            Next: connect this step to full dataset/model execution state.
-          </p>
+          <p style={{ color: colors.muted, marginBottom: 0 }}>Default theme is dark mode.</p>
         </section>
 
         <section
@@ -182,27 +266,148 @@ function App() {
           <p style={{ margin: "4px 0" }}>
             Health: {healthQuery.isLoading ? "loading..." : healthQuery.data?.status ?? "unavailable"}
           </p>
+
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+            <button
+              onClick={() => uploadDatasetMutation.mutate()}
+              disabled={uploadDatasetMutation.isPending}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 8,
+                border: `1px solid ${colors.border}`,
+                background: colors.activeButton,
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
+              {uploadDatasetMutation.isPending ? "Uploading..." : "1) Upload sample dataset"}
+            </button>
+
+            <button
+              onClick={() => trainModelMutation.mutate()}
+              disabled={!dataset || trainModelMutation.isPending}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 8,
+                border: `1px solid ${colors.border}`,
+                background: colors.activeButton,
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
+              {trainModelMutation.isPending ? "Training..." : "2) Train sample model"}
+            </button>
+
+            <button
+              onClick={() => runMutation.mutate()}
+              disabled={!dataset || !model || runMutation.isPending}
+              style={{
+                padding: "8px 12px",
+                borderRadius: 8,
+                border: `1px solid ${colors.border}`,
+                background: colors.activeButton,
+                color: "white",
+                cursor: "pointer",
+              }}
+            >
+              {runMutation.isPending ? "Running..." : "3) Run sample experiment"}
+            </button>
+          </div>
+
+          {dataset ? (
+            <div style={{ marginTop: 12, borderTop: `1px solid ${colors.border}`, paddingTop: 12 }}>
+              <p style={{ margin: "4px 0" }}>
+                Dataset: {dataset.dataset_id} ({dataset.rows} rows)
+              </p>
+              <label>
+                Target column:&nbsp;
+                <select
+                  value={targetColumn}
+                  onChange={(event) => setTargetColumn(event.target.value)}
+                  style={{ background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
+                >
+                  {dataset.columns.map((column) => (
+                    <option key={column} value={column}>
+                      {column}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <details style={{ marginTop: 8 }}>
+                <summary>Dataset preview / schema</summary>
+                <pre
+                  style={{
+                    border: `1px solid ${colors.border}`,
+                    borderRadius: 8,
+                    padding: 12,
+                    background: isDark ? "#0d1529" : "#f8f9fd",
+                    color: colors.muted,
+                    overflowX: "auto",
+                  }}
+                >
+                  {JSON.stringify(
+                    {
+                      columns: dataset.columns,
+                      dtypes: dataset.dtypes,
+                      missing_values: dataset.missing_values,
+                      preview: dataset.preview,
+                    },
+                    null,
+                    2,
+                  )}
+                </pre>
+              </details>
+            </div>
+          ) : (
+            <p style={{ margin: "8px 0 4px" }}>Dataset: not uploaded</p>
+          )}
+
           <p style={{ margin: "4px 0" }}>
-            Compatible explainers: {explainersQuery.data?.explainers.join(", ") ?? "loading..."}
+            Model: {model ? `${model.model_id} (${model.model_type})` : "not trained"}
           </p>
-          <p style={{ margin: "4px 0" }}>
-            Suggested metrics: {explainersQuery.data?.metrics.join(", ") ?? "loading..."}
-          </p>
-          <button
-            onClick={() => runMutation.mutate()}
-            disabled={runMutation.isPending}
-            style={{
-              marginTop: 10,
-              padding: "8px 12px",
-              borderRadius: 8,
-              border: `1px solid ${colors.border}`,
-              background: colors.activeButton,
-              color: "white",
-              cursor: "pointer",
-            }}
-          >
-            {runMutation.isPending ? "Running..." : "Run sample experiment"}
-          </button>
+
+          {explainersQuery.data ? (
+            <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+              <label>
+                Explainer:&nbsp;
+                <select
+                  value={selectedExplainer}
+                  onChange={(event) => setSelectedExplainer(event.target.value)}
+                  style={{ background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
+                >
+                  {explainersQuery.data.explainers.map((explainer) => (
+                    <option key={explainer} value={explainer}>
+                      {explainer}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label>
+                Metric:&nbsp;
+                <select
+                  value={selectedMetric}
+                  onChange={(event) => setSelectedMetric(event.target.value)}
+                  style={{ background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
+                >
+                  {explainersQuery.data.metrics.map((metric) => (
+                    <option key={metric} value={metric}>
+                      {metric}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+          ) : (
+            <>
+              <p style={{ margin: "4px 0" }}>Compatible explainers: train model first</p>
+              <p style={{ margin: "4px 0" }}>Suggested metrics: train model first</p>
+            </>
+          )}
+
+          {errorMessage ? (
+            <p style={{ color: "#ff8a8a", marginTop: 12, marginBottom: 0 }}>{errorMessage}</p>
+          ) : null}
 
           {runMutation.data ? (
             <pre
