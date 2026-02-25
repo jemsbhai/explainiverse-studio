@@ -18,6 +18,8 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 
 ```bash
 pnpm install
+cp apps/web/.env.example apps/web/.env
+# optional: set VITE_API_BASE_URL in apps/web/.env
 pnpm --filter @explainiverse-studio/web dev --host 0.0.0.0 --port 5173
 ```
 
@@ -100,7 +102,7 @@ CMD ["nginx", "-g", "daemon off;"]
 
 - Build command: `pnpm --filter @explainiverse-studio/web build`
 - Output dir: `apps/web/dist`
-- Set `VITE_API_BASE_URL` (recommended future env var) to your API URL
+- Set `VITE_API_BASE_URL` to your API URL
 
 ---
 

@@ -42,6 +42,14 @@ uvicorn app.main:app --reload --port 8000
 pnpm --filter @explainiverse-studio/web dev
 ```
 
+
+### Frontend environment config
+
+```bash
+cp apps/web/.env.example apps/web/.env
+# edit apps/web/.env if your API is not on localhost:8000
+```
+
 ### 4) Open app
 
 - Web: `http://localhost:5173`

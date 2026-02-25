@@ -11,3 +11,5 @@ coverage/
 
 .turbo/
 *.tsbuildinfo
+
+!**/.env.example
