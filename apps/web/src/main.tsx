@@ -67,6 +67,7 @@ type RunHistoryItem = {
   explainer: string;
   metric: string;
   score: number;
+  created_at: string;
 };
 
 type ComparisonRow = {
@@ -266,6 +267,17 @@ function App() {
     uploadDatasetMutation.mutate(file);
   };
 
+  const exportRunHistory = () => {
+    const payload = JSON.stringify(runHistoryQuery.data ?? [], null, 2);
+    const blob = new Blob([payload], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "run-history.json";
+    link.click();
+    URL.revokeObjectURL(url);
+  };
+
   const filteredRuns =
     runHistoryQuery.data
       ?.filter((run) => historyExplainerFilter === "all" || run.explainer === historyExplainerFilter)
@@ -274,7 +286,7 @@ function App() {
         if (historySort === "score_desc") {
           return right.score - left.score;
         }
-        return right.run_id.localeCompare(left.run_id);
+        return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
       }) ?? [];
 
   const comparisonRows: ComparisonRow[] =
@@ -646,6 +658,21 @@ function App() {
               >
                 {clearHistoryMutation.isPending ? "Clearing..." : "Clear run history"}
               </button>
+
+              <button
+                onClick={exportRunHistory}
+                disabled={!runHistoryQuery.data?.length}
+                style={{
+                  padding: "7px 10px",
+                  borderRadius: 8,
+                  border: `1px solid ${colors.border}`,
+                  background: isDark ? "#1b2a45" : "#e8eefc",
+                  color: isDark ? "#cfe1ff" : "#1b3b8a",
+                  cursor: "pointer",
+                }}
+              >
+                Export run history JSON
+              </button>
             </div>
 
             {!filteredRuns.length ? (
@@ -665,6 +692,9 @@ function App() {
                       dataset {run.dataset_id} • model {run.model_id}
                     </div>
                     <div style={{ marginTop: 4 }}>score: {run.score.toFixed(2)}</div>
+                    <div style={{ color: colors.muted, fontSize: 12 }}>
+                      {new Date(run.created_at).toLocaleString()}
+                    </div>
                   </li>
                 ))}
               </ul>

@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
@@ -25,6 +26,7 @@ def list_runs() -> dict:
             "explainer": run.explainer,
             "metric": run.metric,
             "score": run.score,
+            "created_at": run.created_at,
         }
         for run in store.runs.values()
     ]
@@ -45,6 +47,7 @@ def create_run(payload: RunRequest) -> dict:
 
     run_id = store.next_id("run", store.runs)
     score = 0.42
+    created_at = datetime.now(timezone.utc).isoformat()
 
     store.runs[run_id] = RunRecord(
         run_id=run_id,
@@ -53,6 +56,7 @@ def create_run(payload: RunRequest) -> dict:
         explainer=payload.explainer,
         metric=payload.metric,
         score=score,
+        created_at=created_at,
     )
 
     return {

@@ -29,6 +29,7 @@ class RunRecord:
     explainer: str
     metric: str
     score: float
+    created_at: str
 
 
 class InMemoryStore:
