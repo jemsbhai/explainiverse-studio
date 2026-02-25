@@ -92,6 +92,14 @@ type ComparisonRow = {
   avgScore: number;
 };
 
+type RunSummary = {
+  total_runs: number;
+  unique_explainers: number;
+  unique_metrics: number;
+  best_run: { run_id: string; explainer: string; metric: string; score: number } | null;
+  latest_run: { run_id: string; created_at: string } | null;
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
 
 const api = axios.create({
@@ -149,6 +157,14 @@ function App() {
     },
   });
 
+  const runSummaryQuery = useQuery({
+    queryKey: ["run-summary"],
+    queryFn: async () => {
+      const response = await api.get<RunSummary>("/runs/summary");
+      return response.data;
+    },
+  });
+
   const datasetsCatalogQuery = useQuery({
     queryKey: ["datasets-catalog"],
     queryFn: async () => {
@@ -171,6 +187,7 @@ function App() {
     },
     onSuccess: async () => {
       await runHistoryQuery.refetch();
+      await runSummaryQuery.refetch();
       setErrorMessage("Run history cleared.");
     },
     onError: () => setErrorMessage("Failed to clear run history."),
@@ -248,6 +265,7 @@ function App() {
     },
     onSuccess: async () => {
       await runHistoryQuery.refetch();
+      await runSummaryQuery.refetch();
       setErrorMessage(null);
     },
     onError: () => setErrorMessage("Run failed. Confirm model + dataset are ready."),
@@ -275,6 +293,7 @@ function App() {
     },
     onSuccess: async (count) => {
       await runHistoryQuery.refetch();
+      await runSummaryQuery.refetch();
       setErrorMessage(null);
       setStep("results");
       setErrorMessage(`Completed ${count} comparison runs.`);
@@ -422,6 +441,25 @@ function App() {
             <p style={{ margin: "4px 0" }}>
               Health: {healthQuery.isLoading ? "loading..." : healthQuery.data?.status ?? "unavailable"}
             </p>
+
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(120px, 1fr))", gap: 8, marginTop: 10 }}>
+              <div style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 8 }}>
+                <div style={{ color: colors.muted, fontSize: 12 }}>Total runs</div>
+                <div style={{ fontWeight: 700 }}>{runSummaryQuery.data?.total_runs ?? 0}</div>
+              </div>
+              <div style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 8 }}>
+                <div style={{ color: colors.muted, fontSize: 12 }}>Explainers used</div>
+                <div style={{ fontWeight: 700 }}>{runSummaryQuery.data?.unique_explainers ?? 0}</div>
+              </div>
+              <div style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 8 }}>
+                <div style={{ color: colors.muted, fontSize: 12 }}>Metrics used</div>
+                <div style={{ fontWeight: 700 }}>{runSummaryQuery.data?.unique_metrics ?? 0}</div>
+              </div>
+              <div style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 8 }}>
+                <div style={{ color: colors.muted, fontSize: 12 }}>Best score</div>
+                <div style={{ fontWeight: 700 }}>{runSummaryQuery.data?.best_run ? runSummaryQuery.data.best_run.score.toFixed(2) : "—"}</div>
+              </div>
+            </div>
 
             <div style={{ marginTop: 12, marginBottom: 8 }}>
               <label>

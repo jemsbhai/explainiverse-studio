@@ -16,6 +16,39 @@ class RunRequest(BaseModel):
     metric: str
 
 
+
+
+@router.get("/summary")
+def run_summary() -> dict:
+    runs = list(store.runs.values())
+    if not runs:
+        return {
+            "total_runs": 0,
+            "unique_explainers": 0,
+            "unique_metrics": 0,
+            "best_run": None,
+            "latest_run": None,
+        }
+
+    best = max(runs, key=lambda run: run.score)
+    latest = max(runs, key=lambda run: run.created_at)
+
+    return {
+        "total_runs": len(runs),
+        "unique_explainers": len({run.explainer for run in runs}),
+        "unique_metrics": len({run.metric for run in runs}),
+        "best_run": {
+            "run_id": best.run_id,
+            "explainer": best.explainer,
+            "metric": best.metric,
+            "score": best.score,
+        },
+        "latest_run": {
+            "run_id": latest.run_id,
+            "created_at": latest.created_at,
+        },
+    }
+
 @router.get("")
 def list_runs() -> dict:
     runs = [
