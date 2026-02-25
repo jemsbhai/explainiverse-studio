@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 
-from app.store import store
+from app.store import RunRecord, store
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
@@ -13,6 +13,22 @@ class RunRequest(BaseModel):
     model_id: str
     explainer: str
     metric: str
+
+
+@router.get("")
+def list_runs() -> dict:
+    runs = [
+        {
+            "run_id": run.run_id,
+            "dataset_id": run.dataset_id,
+            "model_id": run.model_id,
+            "explainer": run.explainer,
+            "metric": run.metric,
+            "score": run.score,
+        }
+        for run in store.runs.values()
+    ]
+    return {"runs": runs}
 
 
 @router.post("")
@@ -27,13 +43,25 @@ def create_run(payload: RunRequest) -> dict:
     if model.dataset_id != payload.dataset_id:
         raise HTTPException(status_code=400, detail="Model and dataset mismatch")
 
+    run_id = store.next_id("run", store.runs)
+    score = 0.42
+
+    store.runs[run_id] = RunRecord(
+        run_id=run_id,
+        dataset_id=payload.dataset_id,
+        model_id=payload.model_id,
+        explainer=payload.explainer,
+        metric=payload.metric,
+        score=score,
+    )
+
     return {
-        "run_id": "run_mock_001",
+        "run_id": run_id,
         "status": "completed",
         "config": payload.model_dump(),
         "results": {
             "metric": payload.metric,
-            "value": 0.42,
+            "value": score,
             "explainer": payload.explainer,
             "target_column": model.target_column,
             "dataset_rows": dataset.rows,
