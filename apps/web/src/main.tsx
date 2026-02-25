@@ -205,6 +205,35 @@ function App() {
     onError: () => setErrorMessage("Run failed. Confirm model + dataset are ready."),
   });
 
+  const batchRunMutation = useMutation({
+    mutationFn: async () => {
+      if (!dataset || !model || !explainersQuery.data) {
+        throw new Error("Upload dataset, train model, and load compatible explainers first");
+      }
+
+      const requests = explainersQuery.data.explainers.flatMap((explainer) =>
+        explainersQuery.data!.metrics.map((metric) =>
+          api.post<RunResponse>("/runs", {
+            dataset_id: dataset.dataset_id,
+            model_id: model.model_id,
+            explainer,
+            metric,
+          }),
+        ),
+      );
+
+      await Promise.all(requests);
+      return requests.length;
+    },
+    onSuccess: async (count) => {
+      await runHistoryQuery.refetch();
+      setErrorMessage(null);
+      setStep("results");
+      setErrorMessage(`Completed ${count} comparison runs.`);
+    },
+    onError: () => setErrorMessage("Batch run failed. Train model and load compatibility first."),
+  });
+
   const onFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
     setSelectedFile(file);
@@ -391,6 +420,21 @@ function App() {
               >
                 {runMutation.isPending ? "Running..." : "3) Run experiment"}
               </button>
+
+              <button
+                onClick={() => batchRunMutation.mutate()}
+                disabled={!dataset || !model || !explainersQuery.data || batchRunMutation.isPending}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 8,
+                  border: `1px solid ${colors.border}`,
+                  background: colors.accent,
+                  color: "white",
+                  cursor: "pointer",
+                }}
+              >
+                {batchRunMutation.isPending ? "Running all..." : "Run all explainer × metric combos"}
+              </button>
             </div>
 
             {dataset ? (
@@ -484,7 +528,16 @@ function App() {
               </>
             )}
 
-            {errorMessage ? <p style={{ color: "#ff8a8a", marginTop: 12 }}>{errorMessage}</p> : null}
+            {errorMessage ? (
+              <p
+                style={{
+                  color: errorMessage.startsWith("Completed") ? "#8fffb2" : "#ff8a8a",
+                  marginTop: 12,
+                }}
+              >
+                {errorMessage}
+              </p>
+            ) : null}
 
             {runMutation.data ? (
               <pre
