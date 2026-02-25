@@ -1,4 +1,4 @@
-# explainiverse-studio
+# Explainiverse Studio
 
 Standalone frontend + API workspace for Explainiverse.
 
@@ -6,29 +6,27 @@ Standalone frontend + API workspace for Explainiverse.
 
 - `apps/web`: React + Vite + TypeScript frontend
 - `apps/api`: FastAPI backend
-- `packages/sdk`: Shared typed TypeScript client
+- `packages/sdk`: shared typed TypeScript client
 
-## Quick start
+---
 
-### Prerequisites
+## Prerequisites
 
 - Node 20+
 - pnpm 9+
 - Python 3.10+
 
-### Install
+---
+
+## Local development (recommended)
+
+### 1) Install dependencies
 
 ```bash
 pnpm install
 ```
 
-### Run frontend
-
-```bash
-pnpm --filter @explainiverse-studio/web dev
-```
-
-### Run API
+### 2) Start API (terminal A)
 
 ```bash
 cd apps/api
@@ -38,9 +36,62 @@ pip install -r requirements.txt
 uvicorn app.main:app --reload --port 8000
 ```
 
-## First vertical slice
+### 3) Start frontend (terminal B)
 
-1. Upload dataset (`POST /datasets`)
-2. Train baseline model (`POST /models/train`)
-3. List compatible explainers (`GET /explainers/compatible`)
-4. Submit run (`POST /runs`)
+```bash
+pnpm --filter @explainiverse-studio/web dev
+```
+
+### 4) Open app
+
+- Web: `http://localhost:5173`
+- API docs: `http://localhost:8000/docs`
+
+---
+
+## Quick product smoke test
+
+1. Click **Upload sample dataset**
+2. Click **Train model**
+3. Pick explainer + metric
+4. Click **Run experiment** (or **Run all explainer × metric combos**)
+5. Verify run history, comparison panel, and JSON export
+
+---
+
+## Available scripts
+
+```bash
+# Run all workspace dev tasks
+pnpm dev
+
+# Typecheck all workspaces
+pnpm typecheck
+
+# Build all workspaces
+pnpm build
+
+# Run all workspace tests (currently placeholders in web/sdk)
+pnpm test
+```
+
+---
+
+## Deployment guide
+
+See [`docs/RUN_AND_DEPLOY.md`](docs/RUN_AND_DEPLOY.md) for:
+
+- local production-style run commands
+- Docker image examples for API + web
+- managed deployment outlines (Render/Fly/Cloud Run)
+- CI expectations and environment notes
+
+---
+
+## Current implemented vertical slice
+
+- Dataset upload + profiling (`POST /datasets`)
+- Model training against selected target (`POST /models/train`)
+- Compatibility lookup (`GET /explainers/compatible`)
+- Run execution + history (`POST /runs`, `GET /runs`, `DELETE /runs`)
+- Saved asset listing (`GET /datasets`, `GET /models`)
