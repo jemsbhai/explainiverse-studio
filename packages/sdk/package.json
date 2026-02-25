@@ -1,0 +1,16 @@
+{
+  "name": "@explainiverse-studio/sdk",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "echo \"lint not configured yet\"",
+    "test": "echo \"tests pending\""
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  }
+}
