@@ -1,10 +1,12 @@
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 router = APIRouter(prefix="/models", tags=["models"])
 
 
 class TrainRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     dataset_id: str
     target_column: str
     model_type: str = "random_forest"

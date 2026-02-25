@@ -1,10 +1,12 @@
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 router = APIRouter(prefix="/runs", tags=["runs"])
 
 
 class RunRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
     dataset_id: str
     model_id: str
     explainer: str
