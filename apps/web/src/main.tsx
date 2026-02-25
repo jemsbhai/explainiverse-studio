@@ -113,6 +113,9 @@ function App() {
   const [selectedMetric, setSelectedMetric] = useState<string>("comprehensiveness");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [historyExplainerFilter, setHistoryExplainerFilter] = useState<string>("all");
+  const [historyMetricFilter, setHistoryMetricFilter] = useState<string>("all");
+  const [historySort, setHistorySort] = useState<"newest" | "score_desc">("newest");
 
   const healthQuery = useQuery({
     queryKey: ["health"],
@@ -128,6 +131,17 @@ function App() {
       const response = await api.get<{ runs: RunHistoryItem[] }>("/runs");
       return response.data.runs;
     },
+  });
+
+  const clearHistoryMutation = useMutation({
+    mutationFn: async () => {
+      await api.delete("/runs");
+    },
+    onSuccess: async () => {
+      await runHistoryQuery.refetch();
+      setErrorMessage("Run history cleared.");
+    },
+    onError: () => setErrorMessage("Failed to clear run history."),
   });
 
   const uploadDatasetMutation = useMutation({
@@ -252,8 +266,19 @@ function App() {
     uploadDatasetMutation.mutate(file);
   };
 
+  const filteredRuns =
+    runHistoryQuery.data
+      ?.filter((run) => historyExplainerFilter === "all" || run.explainer === historyExplainerFilter)
+      .filter((run) => historyMetricFilter === "all" || run.metric === historyMetricFilter)
+      .sort((left, right) => {
+        if (historySort === "score_desc") {
+          return right.score - left.score;
+        }
+        return right.run_id.localeCompare(left.run_id);
+      }) ?? [];
+
   const comparisonRows: ComparisonRow[] =
-    runHistoryQuery.data?.reduce<ComparisonRow[]>((rows, run) => {
+    filteredRuns.reduce<ComparisonRow[]>((rows, run) => {
       const existing = rows.find(
         (row) => row.explainer === run.explainer && row.metric === run.metric,
       );
@@ -566,11 +591,68 @@ function App() {
             }}
           >
             <h3 style={{ marginTop: 0 }}>Run history</h3>
-            {!runHistoryQuery.data?.length ? (
+            <div style={{ display: "grid", gap: 8, marginBottom: 10 }}>
+              <label style={{ color: colors.muted, fontSize: 13 }}>
+                Filter explainer
+                <select
+                  value={historyExplainerFilter}
+                  onChange={(event) => setHistoryExplainerFilter(event.target.value)}
+                  style={{ width: "100%", marginTop: 4, background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
+                >
+                  <option value="all">all</option>
+                  {(runHistoryQuery.data ?? []).map((run) => run.explainer).filter((value, index, arr) => arr.indexOf(value) === index).map((explainer) => (
+                    <option key={explainer} value={explainer}>{explainer}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ color: colors.muted, fontSize: 13 }}>
+                Filter metric
+                <select
+                  value={historyMetricFilter}
+                  onChange={(event) => setHistoryMetricFilter(event.target.value)}
+                  style={{ width: "100%", marginTop: 4, background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
+                >
+                  <option value="all">all</option>
+                  {(runHistoryQuery.data ?? []).map((run) => run.metric).filter((value, index, arr) => arr.indexOf(value) === index).map((metric) => (
+                    <option key={metric} value={metric}>{metric}</option>
+                  ))}
+                </select>
+              </label>
+
+              <label style={{ color: colors.muted, fontSize: 13 }}>
+                Sort
+                <select
+                  value={historySort}
+                  onChange={(event) => setHistorySort(event.target.value as "newest" | "score_desc")}
+                  style={{ width: "100%", marginTop: 4, background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
+                >
+                  <option value="newest">newest run</option>
+                  <option value="score_desc">highest score</option>
+                </select>
+              </label>
+
+              <button
+                onClick={() => clearHistoryMutation.mutate()}
+                disabled={!runHistoryQuery.data?.length || clearHistoryMutation.isPending}
+                style={{
+                  padding: "7px 10px",
+                  borderRadius: 8,
+                  border: `1px solid ${colors.border}`,
+                  background: isDark ? "#3a1722" : "#fce8ee",
+                  color: isDark ? "#ffd8df" : "#8a1f3a",
+                  cursor: "pointer",
+                }}
+              >
+                {clearHistoryMutation.isPending ? "Clearing..." : "Clear run history"}
+              </button>
+            </div>
+
+            {!filteredRuns.length ? (
               <p style={{ color: colors.muted }}>No runs yet.</p>
             ) : (
               <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
-                {runHistoryQuery.data.map((run) => (
+                {filteredRuns.map((run) => (
                   <li
                     key={run.run_id}
                     style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 10 }}

@@ -67,3 +67,10 @@ def create_run(payload: RunRequest) -> dict:
             "dataset_rows": dataset.rows,
         },
     }
+
+
+@router.delete("")
+def clear_runs() -> dict:
+    cleared = len(store.runs)
+    store.runs.clear()
+    return {"cleared": cleared}
