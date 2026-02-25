@@ -69,6 +69,13 @@ type RunHistoryItem = {
   score: number;
 };
 
+type ComparisonRow = {
+  explainer: string;
+  metric: string;
+  count: number;
+  avgScore: number;
+};
+
 const API_BASE_URL = "http://127.0.0.1:8000";
 
 const api = axios.create({
@@ -215,6 +222,29 @@ function App() {
     const file = new File([SAMPLE_CSV], "sample.csv", { type: "text/csv" });
     uploadDatasetMutation.mutate(file);
   };
+
+  const comparisonRows: ComparisonRow[] =
+    runHistoryQuery.data?.reduce<ComparisonRow[]>((rows, run) => {
+      const existing = rows.find(
+        (row) => row.explainer === run.explainer && row.metric === run.metric,
+      );
+
+      if (!existing) {
+        rows.push({
+          explainer: run.explainer,
+          metric: run.metric,
+          count: 1,
+          avgScore: run.score,
+        });
+        return rows;
+      }
+
+      const totalScore = existing.avgScore * existing.count + run.score;
+      existing.count += 1;
+      existing.avgScore = totalScore / existing.count;
+      return rows;
+    }, [])
+      .sort((a, b) => b.avgScore - a.avgScore) ?? [];
 
   const isDark = theme === "dark";
   const colors = {
@@ -503,6 +533,45 @@ function App() {
                   </li>
                 ))}
               </ul>
+            )}
+
+            <h3 style={{ marginTop: 16 }}>Explainer vs Metric</h3>
+            {!comparisonRows.length ? (
+              <p style={{ color: colors.muted, marginBottom: 0 }}>Run experiments to populate comparison stats.</p>
+            ) : (
+              <div style={{ display: "grid", gap: 8 }}>
+                {comparisonRows.map((row) => (
+                  <div
+                    key={`${row.explainer}-${row.metric}`}
+                    style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 10 }}
+                  >
+                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
+                      <strong>{row.explainer}</strong>
+                      <span style={{ color: colors.muted }}>{row.metric}</span>
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: 13, color: colors.muted }}>
+                      runs: {row.count} • average score: {row.avgScore.toFixed(2)}
+                    </div>
+                    <div
+                      style={{
+                        marginTop: 8,
+                        height: 8,
+                        borderRadius: 6,
+                        background: isDark ? "#1f2740" : "#e3e8f5",
+                        overflow: "hidden",
+                      }}
+                    >
+                      <div
+                        style={{
+                          width: `${Math.min(100, Math.max(0, row.avgScore * 100))}%`,
+                          height: "100%",
+                          background: colors.accent,
+                        }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
             )}
           </aside>
         </div>
