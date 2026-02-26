@@ -207,6 +207,18 @@ function App() {
     queryFn: async () => (await api.get<{ jobs: Phase2BatchJob[] }>("/phase2/batch-runs")).data.jobs,
   });
 
+  useEffect(() => {
+    if (!batchJob || batchJob.status === "completed" || batchJob.status === "cancelled") return;
+
+    const timer = setInterval(async () => {
+      const refreshed = (await api.get<Phase2BatchJob>(`/phase2/batch-runs/${batchJob.job_id}`)).data;
+      setBatchJob(refreshed);
+      void phase2JobsQuery.refetch();
+    }, 1500);
+
+    return () => clearInterval(timer);
+  }, [batchJob, phase2JobsQuery]);
+
   const isDark = theme === "dark";
   const colors = {
     background: isDark ? "#0b1020" : "#f6f8fc",
@@ -373,7 +385,7 @@ function App() {
       const job = (await api.get<Phase2BatchJob>(`/phase2/batch-runs/${response.job_id}`)).data;
       setBatchJob(job);
       await phase2JobsQuery.refetch();
-      setErrorMessage("Phase 2 batch job completed (stub).\n");
+      setErrorMessage("Phase 2 batch job started.");
     },
     onError: () => setErrorMessage("Phase 2 batch run failed."),
   });

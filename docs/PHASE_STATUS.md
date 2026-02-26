@@ -28,7 +28,7 @@ Thin-slice delivered in this repo:
   - `GET /phase2/batch-runs/{job_id}`
   - `GET /phase2/batch-runs`
   - `POST /phase2/batch-runs/{job_id}/cancel`
-  - returns progress and matrix results contract for UI integration
+  - returns progress states (`running`, `completed`, `cancelled`) and matrix results contract for UI integration
 - Model registration endpoint for external artifacts (e.g., PyTorch):
   - `POST /models/upload`
   - captures `framework`, `artifact_uri`, `input_shape`, `class_labels`

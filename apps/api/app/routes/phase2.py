@@ -28,6 +28,21 @@ class BatchRunRequest(BaseModel):
     metrics: list[str]
 
 
+def _advance_job(job: dict) -> None:
+    if job["status"] in {"completed", "cancelled"}:
+        return
+
+    completed = job["progress"]["completed"]
+    total = job["progress"]["total"]
+    step = max(1, total // 3)
+    job["progress"]["completed"] = min(total, completed + step)
+
+    now = datetime.now(timezone.utc).isoformat()
+    job["updated_at"] = now
+    if job["progress"]["completed"] >= total:
+        job["status"] = "completed"
+
+
 @router.post("/batch-runs")
 def create_batch_run(payload: BatchRunRequest) -> dict:
     model = store.models.get(payload.model_id)
@@ -50,14 +65,14 @@ def create_batch_run(payload: BatchRunRequest) -> dict:
     for explainer in payload.explainers:
         for metric in payload.metrics:
             score = round(((len(explainer) * 7 + len(metric) * 11) % 100) / 100, 3)
-            jobs.append({"explainer": explainer, "metric": metric, "score": score, "status": "completed"})
+            jobs.append({"explainer": explainer, "metric": metric, "score": score, "status": "queued"})
 
     store.phase2_jobs[job_id] = {
         "job_id": job_id,
         "model_id": payload.model_id,
         "manifest_id": payload.manifest_id,
-        "status": "completed",
-        "progress": {"completed": total, "total": total},
+        "status": "running",
+        "progress": {"completed": 0, "total": total},
         "created_at": now,
         "updated_at": now,
         "results": jobs,
@@ -65,7 +80,7 @@ def create_batch_run(payload: BatchRunRequest) -> dict:
 
     return {
         "job_id": job_id,
-        "status": "accepted",
+        "status": "running",
         "phase": "phase2",
         "poll_url": f"/phase2/batch-runs/{job_id}",
         "progress": {"completed": 0, "total": total},
@@ -77,11 +92,20 @@ def get_batch_run(job_id: str) -> dict:
     job = store.phase2_jobs.get(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Batch job not found")
+    _advance_job(job)
+    if job["status"] == "completed":
+        for item in job["results"]:
+            item["status"] = "completed"
     return job
 
 
 @router.get("/batch-runs")
 def list_batch_runs() -> dict:
+    for job in store.phase2_jobs.values():
+        _advance_job(job)
+        if job["status"] == "completed":
+            for item in job["results"]:
+                item["status"] = "completed"
     jobs = sorted(store.phase2_jobs.values(), key=lambda item: item["created_at"], reverse=True)
     return {"jobs": jobs}
 
@@ -93,8 +117,13 @@ def cancel_batch_run(job_id: str) -> dict:
         raise HTTPException(status_code=404, detail="Batch job not found")
     if job["status"] == "completed":
         return {"job_id": job_id, "status": "already_completed"}
+    if job["status"] == "cancelled":
+        return {"job_id": job_id, "status": "already_cancelled"}
 
     job["status"] = "cancelled"
+    for item in job["results"]:
+        if item["status"] != "completed":
+            item["status"] = "cancelled"
     job["updated_at"] = datetime.now(timezone.utc).isoformat()
     return {"job_id": job_id, "status": "cancelled"}
 
