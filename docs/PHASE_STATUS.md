@@ -23,6 +23,10 @@ Thin-slice delivered in this repo:
 - Saliency preview contract endpoint (Phase 2 stub):
   - `POST /phase2/saliency-preview`
   - returns artifact contract payload (`artifact_key`, `overlay_uri`, `heatmap_stats`) for UI integration
+- Batch execution + polling stub endpoints:
+  - `POST /phase2/batch-runs`
+  - `GET /phase2/batch-runs/{job_id}`
+  - returns progress and matrix results contract for UI integration
 - Model registration endpoint for external artifacts (e.g., PyTorch):
   - `POST /models/upload`
   - captures `framework`, `artifact_uri`, `input_shape`, `class_labels`
@@ -34,5 +38,5 @@ Thin-slice delivered in this repo:
 
 1. Add artifact fetch/validation adapters for uploaded model URIs.
 2. Add image explanation artifact generation endpoint (starting with saliency stub contract).
-3. Add batch execution endpoint for explainer × metric grids with progress state.
+3. Replace batch execution stub with async/background execution engine and incremental progress updates.
 4. Extend web wizard with Phase 2 tab for model upload + image manifest registration.

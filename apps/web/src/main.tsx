@@ -85,6 +85,25 @@ type SaliencyPreviewResponse = {
   artifact: { artifact_key: string; overlay_uri: string; heatmap_stats: { min: number; max: number; mean: number } };
 };
 
+type Phase2BatchCreateResponse = {
+  job_id: string;
+  status: string;
+  phase: string;
+  poll_url: string;
+  progress: { completed: number; total: number };
+};
+
+type Phase2BatchJob = {
+  job_id: string;
+  model_id: string;
+  manifest_id: string;
+  status: string;
+  progress: { completed: number; total: number };
+  created_at: string;
+  updated_at: string;
+  results: { explainer: string; metric: string; score: number; status: string }[];
+};
+
 type CatalogItem = { key: string; label: string; description: string };
 
 type CompatibilityResponse = {
@@ -179,6 +198,9 @@ function App() {
   const [manifest, setManifest] = useState<ImageManifestResponse | null>(null);
   const [uploadedModel, setUploadedModel] = useState<UploadedModelResponse | null>(null);
   const [saliencyPreview, setSaliencyPreview] = useState<SaliencyPreviewResponse | null>(null);
+  const [batchExplainers, setBatchExplainers] = useState("saliency,gradcam");
+  const [batchMetrics, setBatchMetrics] = useState("comprehensiveness,sufficiency");
+  const [batchJob, setBatchJob] = useState<Phase2BatchJob | null>(null);
 
   const isDark = theme === "dark";
   const colors = {
@@ -330,6 +352,26 @@ function App() {
     onError: () => setErrorMessage("Saliency preview generation failed."),
   });
 
+  const createBatchRunMutation = useMutation({
+    mutationFn: async () => {
+      if (!uploadedModel || !manifest) throw new Error("Register model and image manifest first");
+      return (
+        await api.post<Phase2BatchCreateResponse>("/phase2/batch-runs", {
+          model_id: uploadedModel.model_id,
+          manifest_id: manifest.manifest_id,
+          explainers: batchExplainers.split(",").map((x) => x.trim()).filter(Boolean),
+          metrics: batchMetrics.split(",").map((x) => x.trim()).filter(Boolean),
+        })
+      ).data;
+    },
+    onSuccess: async (response) => {
+      const job = (await api.get<Phase2BatchJob>(`/phase2/batch-runs/${response.job_id}`)).data;
+      setBatchJob(job);
+      setErrorMessage("Phase 2 batch job completed (stub).\n");
+    },
+    onError: () => setErrorMessage("Phase 2 batch run failed."),
+  });
+
   useEffect(() => {
     if (explainersQuery.data?.explainers.length) setSelectedExplainer(explainersQuery.data.explainers[0]);
     if (explainersQuery.data?.metrics.length) setSelectedMetric(explainersQuery.data.metrics[0]);
@@ -440,11 +482,18 @@ function App() {
             <button onClick={() => saliencyPreviewMutation.mutate()} disabled={saliencyPreviewMutation.isPending || !manifest || !uploadedModel}>
               {saliencyPreviewMutation.isPending ? "Generating..." : "Generate saliency preview (stub)"}
             </button>
+
+            <label>Batch explainers (csv): <input value={batchExplainers} onChange={(e) => setBatchExplainers(e.target.value)} /></label>
+            <label>Batch metrics (csv): <input value={batchMetrics} onChange={(e) => setBatchMetrics(e.target.value)} /></label>
+            <button onClick={() => createBatchRunMutation.mutate()} disabled={createBatchRunMutation.isPending || !manifest || !uploadedModel}>
+              {createBatchRunMutation.isPending ? "Submitting..." : "Run phase2 batch job (stub)"}
+            </button>
           </div>
 
           {manifest ? <p style={{ color: colors.muted }}>Manifest: {manifest.manifest_id} ({manifest.image_count} images)</p> : null}
           {uploadedModel ? <p style={{ color: colors.muted }}>Model: {uploadedModel.model_id} ({uploadedModel.framework})</p> : null}
           {saliencyPreview ? <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(saliencyPreview, null, 2)}</pre> : null}
+          {batchJob ? <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(batchJob, null, 2)}</pre> : null}
         </section>
       </div>
     </main>
