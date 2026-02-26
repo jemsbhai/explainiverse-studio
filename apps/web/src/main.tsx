@@ -202,6 +202,11 @@ function App() {
   const [batchMetrics, setBatchMetrics] = useState("comprehensiveness,sufficiency");
   const [batchJob, setBatchJob] = useState<Phase2BatchJob | null>(null);
 
+  const phase2JobsQuery = useQuery({
+    queryKey: ["phase2-jobs"],
+    queryFn: async () => (await api.get<{ jobs: Phase2BatchJob[] }>("/phase2/batch-runs")).data.jobs,
+  });
+
   const isDark = theme === "dark";
   const colors = {
     background: isDark ? "#0b1020" : "#f6f8fc",
@@ -367,9 +372,19 @@ function App() {
     onSuccess: async (response) => {
       const job = (await api.get<Phase2BatchJob>(`/phase2/batch-runs/${response.job_id}`)).data;
       setBatchJob(job);
+      await phase2JobsQuery.refetch();
       setErrorMessage("Phase 2 batch job completed (stub).\n");
     },
     onError: () => setErrorMessage("Phase 2 batch run failed."),
+  });
+
+  const cancelBatchRunMutation = useMutation({
+    mutationFn: async (jobId: string) => (await api.post<{ job_id: string; status: string }>(`/phase2/batch-runs/${jobId}/cancel`)).data,
+    onSuccess: async () => {
+      await phase2JobsQuery.refetch();
+      setErrorMessage("Batch job cancel request processed.");
+    },
+    onError: () => setErrorMessage("Batch job cancellation failed."),
   });
 
   useEffect(() => {
@@ -494,6 +509,29 @@ function App() {
           {uploadedModel ? <p style={{ color: colors.muted }}>Model: {uploadedModel.model_id} ({uploadedModel.framework})</p> : null}
           {saliencyPreview ? <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(saliencyPreview, null, 2)}</pre> : null}
           {batchJob ? <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(batchJob, null, 2)}</pre> : null}
+
+          <h4>Batch jobs</h4>
+          <button onClick={() => phase2JobsQuery.refetch()} disabled={phase2JobsQuery.isFetching}>
+            {phase2JobsQuery.isFetching ? "Refreshing..." : "Refresh batch jobs"}
+          </button>
+          {phase2JobsQuery.data?.length ? (
+            <ul>
+              {phase2JobsQuery.data.map((job) => (
+                <li key={job.job_id}>
+                  {job.job_id} • {job.status} • {job.progress.completed}/{job.progress.total}
+                  <button
+                    style={{ marginLeft: 8 }}
+                    onClick={() => cancelBatchRunMutation.mutate(job.job_id)}
+                    disabled={cancelBatchRunMutation.isPending || job.status === "completed" || job.status === "cancelled"}
+                  >
+                    Cancel
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p style={{ color: colors.muted }}>No phase2 batch jobs yet.</p>
+          )}
         </section>
       </div>
     </main>

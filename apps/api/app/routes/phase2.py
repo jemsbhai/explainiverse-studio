@@ -80,6 +80,25 @@ def get_batch_run(job_id: str) -> dict:
     return job
 
 
+@router.get("/batch-runs")
+def list_batch_runs() -> dict:
+    jobs = sorted(store.phase2_jobs.values(), key=lambda item: item["created_at"], reverse=True)
+    return {"jobs": jobs}
+
+
+@router.post("/batch-runs/{job_id}/cancel")
+def cancel_batch_run(job_id: str) -> dict:
+    job = store.phase2_jobs.get(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Batch job not found")
+    if job["status"] == "completed":
+        return {"job_id": job_id, "status": "already_completed"}
+
+    job["status"] = "cancelled"
+    job["updated_at"] = datetime.now(timezone.utc).isoformat()
+    return {"job_id": job_id, "status": "cancelled"}
+
+
 @router.post("/saliency-preview")
 def saliency_preview(payload: SaliencyPreviewRequest) -> dict:
     model = store.models.get(payload.model_id)

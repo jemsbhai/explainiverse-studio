@@ -26,6 +26,8 @@ Thin-slice delivered in this repo:
 - Batch execution + polling stub endpoints:
   - `POST /phase2/batch-runs`
   - `GET /phase2/batch-runs/{job_id}`
+  - `GET /phase2/batch-runs`
+  - `POST /phase2/batch-runs/{job_id}/cancel`
   - returns progress and matrix results contract for UI integration
 - Model registration endpoint for external artifacts (e.g., PyTorch):
   - `POST /models/upload`
