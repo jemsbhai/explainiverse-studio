@@ -1,5 +1,10 @@
 from __future__ import annotations
 
+from pathlib import Path
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlparse
+from urllib.request import Request, urlopen
+
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, ConfigDict
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
@@ -170,6 +175,32 @@ def validate_model_artifact(payload: ValidateModelArtifactRequest) -> dict:
     }.get(model.framework, ())
     extension_ok = True if not expected_ext else uri.lower().endswith(expected_ext)
 
+    accessibility: str = "not_checked"
+    accessibility_reason = "unsupported_scheme"
+    parsed = urlparse(uri)
+    scheme = parsed.scheme.lower()
+
+    if scheme in {"http", "https"}:
+        try:
+            req = Request(uri, method="HEAD")
+            with urlopen(req, timeout=4) as response:
+                status_code = getattr(response, "status", 200)
+            accessibility = "reachable" if 200 <= status_code < 400 else "unreachable"
+            accessibility_reason = f"http_status_{status_code}"
+        except HTTPError as exc:
+            accessibility = "unreachable"
+            accessibility_reason = f"http_error_{exc.code}"
+        except URLError as exc:
+            accessibility = "unreachable"
+            accessibility_reason = f"url_error_{type(exc.reason).__name__}"
+    elif scheme == "file" or uri.startswith("/"):
+        path = Path(parsed.path if scheme == "file" else uri)
+        accessibility = "reachable" if path.exists() else "unreachable"
+        accessibility_reason = "path_exists" if path.exists() else "path_missing"
+    elif scheme in {"s3", "gs"}:
+        accessibility = "not_checked"
+        accessibility_reason = "cloud_uri_requires_provider_credentials"
+
     return {
         "model_id": model.model_id,
         "framework": model.framework,
@@ -178,6 +209,8 @@ def validate_model_artifact(payload: ValidateModelArtifactRequest) -> dict:
             "uri_scheme_valid": True,
             "extension_expected": list(expected_ext),
             "extension_ok": extension_ok,
+            "uri_accessibility": accessibility,
+            "uri_accessibility_reason": accessibility_reason,
         },
         "status": "valid" if extension_ok else "warning",
         "phase": "phase2_prep",

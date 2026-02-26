@@ -13,6 +13,8 @@ export type ValidateArtifactResponse = {
     uri_scheme_valid: boolean;
     extension_expected: string[];
     extension_ok: boolean;
+    uri_accessibility: "reachable" | "unreachable" | "not_checked";
+    uri_accessibility_reason: string;
   };
   status: string;
   phase: string;

@@ -134,7 +134,7 @@ Current Phase-1 API vertical slice includes:
 - `GET /runs/report` (portable JSON report)
 - `GET /runs`, `DELETE /runs` (history management)
 - `POST /models/upload` (Phase 2 prep: external model registration)
-- `POST /models/validate-artifact` (Phase 2 prep: model artifact contract validation)
+- `POST /models/validate-artifact` (Phase 2 prep: model artifact contract validation + basic URI accessibility checks)
 - `POST /datasets/image-manifest` (Phase 2 prep: image dataset registration)
 
 Before production use, plan migration to:
