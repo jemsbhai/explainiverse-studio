@@ -89,6 +89,8 @@ pnpm test
 
 See [`docs/RUN_AND_DEPLOY.md`](docs/RUN_AND_DEPLOY.md) for:
 
+- phase status tracker: [`docs/PHASE_STATUS.md`](docs/PHASE_STATUS.md)
+
 - local production-style run commands
 - Docker image examples for API + web
 - managed deployment outlines (Render/Fly/Cloud Run)
@@ -104,3 +106,4 @@ See [`docs/RUN_AND_DEPLOY.md`](docs/RUN_AND_DEPLOY.md) for:
 - Run execution + history (`POST /runs`, `GET /runs`, `DELETE /runs`)
 - Aggregated leaderboard + reproducibility report (`GET /runs/leaderboard`, `GET /runs/report`)
 - Saved asset listing (`GET /datasets`, `GET /models`)
+- Phase 2 prep endpoints (`POST /models/upload`, `POST /datasets/image-manifest`)

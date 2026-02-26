@@ -20,6 +20,10 @@ class ModelRecord:
     target_column: str
     model_type: str
     task_type: str
+    framework: str = "sklearn"
+    artifact_uri: str | None = None
+    input_shape: list[int] | None = None
+    class_labels: list[str] | None = None
 
 
 @dataclass
@@ -43,6 +47,9 @@ class InMemoryStore:
         self.dataset_frames: dict[str, Any] = {}
         self.model_objects: dict[str, Any] = {}
         self.model_features: dict[str, list[str]] = {}
+
+        # Phase-2 prep: image dataset manifests.
+        self.image_manifests: dict[str, dict[str, Any]] = {}
 
     def next_id(self, prefix: str, existing: dict[str, Any]) -> str:
         return f"{prefix}_{len(existing) + 1:03d}"

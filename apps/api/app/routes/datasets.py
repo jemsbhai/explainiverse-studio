@@ -2,10 +2,38 @@ from io import StringIO
 
 import pandas as pd
 from fastapi import APIRouter, HTTPException, UploadFile
+from pydantic import BaseModel, ConfigDict
 
 from app.store import DatasetRecord, store
 
 router = APIRouter(prefix="/datasets", tags=["datasets"])
+
+
+class ImageManifestRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    name: str
+    image_count: int
+    class_labels: list[str]
+    image_root_uri: str
+
+
+@router.post("/image-manifest")
+def register_image_manifest(payload: ImageManifestRequest) -> dict:
+    if payload.image_count <= 0:
+        raise HTTPException(status_code=400, detail="image_count must be > 0")
+    if not payload.class_labels:
+        raise HTTPException(status_code=400, detail="class_labels is required")
+
+    manifest_id = store.next_id("img", store.image_manifests)
+    store.image_manifests[manifest_id] = payload.model_dump()
+
+    return {
+        "manifest_id": manifest_id,
+        "status": "registered",
+        "phase": "phase2_prep",
+        **payload.model_dump(),
+    }
 
 
 def _serialize_preview(dataframe: pd.DataFrame, max_rows: int = 5) -> list[dict]:

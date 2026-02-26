@@ -133,6 +133,8 @@ Current Phase-1 API vertical slice includes:
 - `GET /runs/leaderboard` (aggregated ranking)
 - `GET /runs/report` (portable JSON report)
 - `GET /runs`, `DELETE /runs` (history management)
+- `POST /models/upload` (Phase 2 prep: external model registration)
+- `POST /datasets/image-manifest` (Phase 2 prep: image dataset registration)
 
 Before production use, plan migration to:
 

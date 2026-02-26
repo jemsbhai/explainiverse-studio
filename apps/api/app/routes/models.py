@@ -18,6 +18,18 @@ class TrainRequest(BaseModel):
     model_type: str = "random_forest"
 
 
+class UploadModelRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    dataset_id: str
+    target_column: str
+    model_type: str = "pytorch_classifier"
+    framework: str = "pytorch"
+    artifact_uri: str
+    input_shape: list[int] | None = None
+    class_labels: list[str] | None = None
+
+
 def _infer_task(y) -> str:
     if y.dtype.kind in {"O", "b"}:
         return "classification"
@@ -76,6 +88,7 @@ def train_model(payload: TrainRequest) -> dict:
         target_column=payload.target_column,
         model_type=payload.model_type,
         task_type=task_type,
+        framework="sklearn",
     )
     store.model_objects[model_id] = estimator
     store.model_features[model_id] = list(X.columns)
@@ -90,6 +103,46 @@ def train_model(payload: TrainRequest) -> dict:
     }
 
 
+@router.post("/upload")
+def upload_model(payload: UploadModelRequest) -> dict:
+    dataset = store.datasets.get(payload.dataset_id)
+    if not dataset:
+        raise HTTPException(status_code=404, detail="Dataset not found")
+
+    if payload.target_column not in dataset.columns:
+        raise HTTPException(status_code=400, detail="Target column not in dataset columns")
+
+    if not payload.artifact_uri.strip():
+        raise HTTPException(status_code=400, detail="artifact_uri is required")
+
+    model_id = store.next_id("model", store.models)
+    dataset.target_column = payload.target_column
+    task_type = "classification"
+
+    store.models[model_id] = ModelRecord(
+        model_id=model_id,
+        dataset_id=payload.dataset_id,
+        target_column=payload.target_column,
+        model_type=payload.model_type,
+        task_type=task_type,
+        framework=payload.framework,
+        artifact_uri=payload.artifact_uri,
+        input_shape=payload.input_shape,
+        class_labels=payload.class_labels,
+    )
+
+    return {
+        "model_id": model_id,
+        "dataset_id": payload.dataset_id,
+        "status": "registered",
+        "model_type": payload.model_type,
+        "task_type": task_type,
+        "framework": payload.framework,
+        "artifact_uri": payload.artifact_uri,
+        "phase": "phase2_prep",
+    }
+
+
 @router.get("")
 def list_models() -> dict:
     models = [
@@ -99,6 +152,8 @@ def list_models() -> dict:
             "target_column": record.target_column,
             "model_type": record.model_type,
             "task_type": record.task_type,
+            "framework": record.framework,
+            "artifact_uri": record.artifact_uri,
         }
         for record in store.models.values()
     ]
