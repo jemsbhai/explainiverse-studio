@@ -74,6 +74,19 @@ type UploadedModelResponse = {
   phase: string;
 };
 
+type ValidateArtifactResponse = {
+  model_id: string;
+  framework: string;
+  artifact_uri: string;
+  checks: {
+    uri_scheme_valid: boolean;
+    extension_expected: string[];
+    extension_ok: boolean;
+  };
+  status: string;
+  phase: string;
+};
+
 type SaliencyPreviewResponse = {
   status: string;
   phase: string;
@@ -201,6 +214,7 @@ function App() {
   const [batchExplainers, setBatchExplainers] = useState("saliency,gradcam");
   const [batchMetrics, setBatchMetrics] = useState("comprehensiveness,sufficiency");
   const [batchJob, setBatchJob] = useState<Phase2BatchJob | null>(null);
+  const [artifactValidation, setArtifactValidation] = useState<ValidateArtifactResponse | null>(null);
 
   const phase2JobsQuery = useQuery({
     queryKey: ["phase2-jobs"],
@@ -344,6 +358,7 @@ function App() {
     },
     onSuccess: async (response) => {
       setUploadedModel(response);
+      setArtifactValidation(null);
       await modelsCatalogQuery.refetch();
       setErrorMessage("External model registered.");
     },
@@ -367,6 +382,22 @@ function App() {
       setErrorMessage("Phase 2 saliency preview contract generated.");
     },
     onError: () => setErrorMessage("Saliency preview generation failed."),
+  });
+
+  const validateArtifactMutation = useMutation({
+    mutationFn: async () => {
+      if (!uploadedModel) throw new Error("Register model first");
+      return (
+        await api.post<ValidateArtifactResponse>("/models/validate-artifact", {
+          model_id: uploadedModel.model_id,
+        })
+      ).data;
+    },
+    onSuccess: (response) => {
+      setArtifactValidation(response);
+      setErrorMessage(response.status === "valid" ? "Artifact validation passed." : "Artifact validation returned warnings.");
+    },
+    onError: () => setErrorMessage("Artifact validation failed."),
   });
 
   const createBatchRunMutation = useMutation({
@@ -504,6 +535,9 @@ function App() {
             <button onClick={() => uploadExternalModelMutation.mutate()} disabled={uploadExternalModelMutation.isPending}>
               {uploadExternalModelMutation.isPending ? "Registering..." : "Register PyTorch model"}
             </button>
+            <button onClick={() => validateArtifactMutation.mutate()} disabled={validateArtifactMutation.isPending || !uploadedModel}>
+              {validateArtifactMutation.isPending ? "Validating..." : "Validate model artifact"}
+            </button>
 
             <label>Sample ref: <input value={sampleRef} onChange={(e) => setSampleRef(e.target.value)} /></label>
             <button onClick={() => saliencyPreviewMutation.mutate()} disabled={saliencyPreviewMutation.isPending || !manifest || !uploadedModel}>
@@ -519,6 +553,7 @@ function App() {
 
           {manifest ? <p style={{ color: colors.muted }}>Manifest: {manifest.manifest_id} ({manifest.image_count} images)</p> : null}
           {uploadedModel ? <p style={{ color: colors.muted }}>Model: {uploadedModel.model_id} ({uploadedModel.framework})</p> : null}
+          {artifactValidation ? <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(artifactValidation, null, 2)}</pre> : null}
           {saliencyPreview ? <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(saliencyPreview, null, 2)}</pre> : null}
           {batchJob ? <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(batchJob, null, 2)}</pre> : null}
 

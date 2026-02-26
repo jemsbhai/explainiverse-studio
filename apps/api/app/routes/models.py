@@ -30,6 +30,12 @@ class UploadModelRequest(BaseModel):
     class_labels: list[str] | None = None
 
 
+class ValidateModelArtifactRequest(BaseModel):
+    model_config = ConfigDict(protected_namespaces=())
+
+    model_id: str
+
+
 def _infer_task(y) -> str:
     if y.dtype.kind in {"O", "b"}:
         return "classification"
@@ -139,6 +145,41 @@ def upload_model(payload: UploadModelRequest) -> dict:
         "task_type": task_type,
         "framework": payload.framework,
         "artifact_uri": payload.artifact_uri,
+        "phase": "phase2_prep",
+    }
+
+
+@router.post("/validate-artifact")
+def validate_model_artifact(payload: ValidateModelArtifactRequest) -> dict:
+    model = store.models.get(payload.model_id)
+    if not model:
+        raise HTTPException(status_code=404, detail="Model not found")
+
+    if not model.artifact_uri:
+        raise HTTPException(status_code=400, detail="Model has no artifact_uri")
+
+    uri = model.artifact_uri.strip()
+    is_remote = uri.startswith(("s3://", "gs://", "http://", "https://"))
+    is_local = uri.startswith(("file://", "/"))
+    if not (is_remote or is_local):
+        raise HTTPException(status_code=400, detail="artifact_uri must be a remote URI or local file path")
+
+    expected_ext = {
+        "pytorch": (".pt", ".pth", ".ckpt"),
+        "onnx": (".onnx",),
+    }.get(model.framework, ())
+    extension_ok = True if not expected_ext else uri.lower().endswith(expected_ext)
+
+    return {
+        "model_id": model.model_id,
+        "framework": model.framework,
+        "artifact_uri": uri,
+        "checks": {
+            "uri_scheme_valid": True,
+            "extension_expected": list(expected_ext),
+            "extension_ok": extension_ok,
+        },
+        "status": "valid" if extension_ok else "warning",
         "phase": "phase2_prep",
     }
 

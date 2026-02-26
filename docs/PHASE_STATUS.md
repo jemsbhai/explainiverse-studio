@@ -32,13 +32,16 @@ Thin-slice delivered in this repo:
 - Model registration endpoint for external artifacts (e.g., PyTorch):
   - `POST /models/upload`
   - captures `framework`, `artifact_uri`, `input_shape`, `class_labels`
+- Model artifact validation endpoint (Phase 2 prep):
+  - `POST /models/validate-artifact`
+  - performs URI/extension checks for uploaded model artifacts
 - Image dataset manifest registration endpoint:
   - `POST /datasets/image-manifest`
   - captures dataset metadata needed for image workflows
 
 ## Next Phase 2 implementation steps
 
-1. Add artifact fetch/validation adapters for uploaded model URIs.
+1. Add artifact fetch adapters (validation endpoint is now available; next is URI accessibility checks).
 2. Add image explanation artifact generation endpoint (starting with saliency stub contract).
 3. Replace batch execution stub with async/background execution engine and incremental progress updates.
 4. Extend web wizard with Phase 2 tab for model upload + image manifest registration.
