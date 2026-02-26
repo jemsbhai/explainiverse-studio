@@ -20,6 +20,9 @@ Status: **Started** 🚧
 
 Thin-slice delivered in this repo:
 
+- Saliency preview contract endpoint (Phase 2 stub):
+  - `POST /phase2/saliency-preview`
+  - returns artifact contract payload (`artifact_key`, `overlay_uri`, `heatmap_stats`) for UI integration
 - Model registration endpoint for external artifacts (e.g., PyTorch):
   - `POST /models/upload`
   - captures `framework`, `artifact_uri`, `input_shape`, `class_labels`
