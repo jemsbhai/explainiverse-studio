@@ -1,11 +1,6 @@
-import React, { ChangeEvent, useEffect, useState } from "react";
+import React, { ChangeEvent, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
-import {
-  QueryClient,
-  QueryClientProvider,
-  useMutation,
-  useQuery,
-} from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider, useMutation, useQuery } from "@tanstack/react-query";
 import { create } from "zustand";
 import axios from "axios";
 
@@ -33,6 +28,8 @@ type ModelResponse = {
   model_id: string;
   dataset_id: string;
   model_type: string;
+  task_type: string;
+  feature_count: number;
   status: string;
 };
 
@@ -49,29 +46,31 @@ type ModelCatalogItem = {
   dataset_id: string;
   target_column: string;
   model_type: string;
+  task_type: string;
 };
+
+type CatalogItem = { key: string; label: string; description: string };
 
 type CompatibilityResponse = {
   explainers: string[];
   metrics: string[];
   target_column: string;
+  model_type: string;
+  explainer_details: (CatalogItem & { supported_model_types: string[] })[];
+  metric_details: CatalogItem[];
 };
 
 type RunResponse = {
   run_id: string;
   status: string;
-  config: {
-    dataset_id: string;
-    model_id: string;
-    explainer: string;
-    metric: string;
-  };
+  config: { dataset_id: string; model_id: string; explainer: string; metric: string };
   results: {
     metric: string;
     value: number;
     explainer: string;
     target_column: string;
     dataset_rows: number;
+    scoring_mode: string;
   };
 };
 
@@ -85,11 +84,13 @@ type RunHistoryItem = {
   created_at: string;
 };
 
-type ComparisonRow = {
+type LeaderboardRow = {
   explainer: string;
   metric: string;
   count: number;
-  avgScore: number;
+  avg_score: number;
+  best_score: number;
+  last_run_at: string;
 };
 
 type RunSummary = {
@@ -100,28 +101,23 @@ type RunSummary = {
   latest_run: { run_id: string; created_at: string } | null;
 };
 
+type RunReport = {
+  generated_at: string;
+  summary: RunSummary;
+  leaderboard: LeaderboardRow[];
+  runs: RunHistoryItem[];
+  metadata: { scoring_mode: string; store_mode: string };
+};
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:8000";
-
-const api = axios.create({
-  baseURL: API_BASE_URL,
-  timeout: 10_000,
-});
-
-const SAMPLE_CSV = `target,feature_a,feature_b
-1,0.2,1.2
-0,0.5,0.7
-1,0.9,1.8
-0,0.1,0.3
-`;
+const api = axios.create({ baseURL: API_BASE_URL, timeout: 10_000 });
+const SAMPLE_CSV = `target,feature_a,feature_b\n1,0.2,1.2\n0,0.5,0.7\n1,0.9,1.8\n0,0.1,0.3\n`;
 
 const useAppState = create<AppState>((set) => ({
   step: "dataset",
   theme: "dark",
   setStep: (step) => set({ step }),
-  toggleTheme: () =>
-    set((state) => ({
-      theme: state.theme === "dark" ? "light" : "dark",
-    })),
+  toggleTheme: () => set((state) => ({ theme: state.theme === "dark" ? "light" : "dark" })),
 }));
 
 const queryClient = new QueryClient();
@@ -132,73 +128,47 @@ function App() {
 
   const [dataset, setDataset] = useState<DatasetResponse | null>(null);
   const [model, setModel] = useState<ModelResponse | null>(null);
-  const [targetColumn, setTargetColumn] = useState<string>("target");
-  const [selectedExplainer, setSelectedExplainer] = useState<string>("lime");
-  const [selectedMetric, setSelectedMetric] = useState<string>("comprehensiveness");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [targetColumn, setTargetColumn] = useState("target");
+  const [modelType, setModelType] = useState("random_forest");
+  const [selectedExplainer, setSelectedExplainer] = useState("lime");
+  const [selectedMetric, setSelectedMetric] = useState("comprehensiveness");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
-  const [historyExplainerFilter, setHistoryExplainerFilter] = useState<string>("all");
-  const [historyMetricFilter, setHistoryMetricFilter] = useState<string>("all");
-  const [historySort, setHistorySort] = useState<"newest" | "score_desc">("newest");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  const healthQuery = useQuery({
-    queryKey: ["health"],
-    queryFn: async () => {
-      const response = await api.get<{ status: string }>("/health");
-      return response.data;
-    },
+  const isDark = theme === "dark";
+  const colors = {
+    background: isDark ? "#0b1020" : "#f6f8fc",
+    panel: isDark ? "#121a2f" : "#ffffff",
+    text: isDark ? "#e6ecff" : "#121212",
+    muted: isDark ? "#9fb0d6" : "#5b6170",
+    border: isDark ? "#26324f" : "#d9deea",
+    accent: isDark ? "#7aa2ff" : "#2447d5",
+  };
+
+  const healthQuery = useQuery({ queryKey: ["health"], queryFn: async () => (await api.get<{ status: string }>("/health")).data });
+  const runHistoryQuery = useQuery({ queryKey: ["run-history"], queryFn: async () => (await api.get<{ runs: RunHistoryItem[] }>("/runs")).data.runs });
+  const runSummaryQuery = useQuery({ queryKey: ["run-summary"], queryFn: async () => (await api.get<RunSummary>("/runs/summary")).data });
+  const leaderboardQuery = useQuery({ queryKey: ["run-leaderboard"], queryFn: async () => (await api.get<{ rows: LeaderboardRow[] }>("/runs/leaderboard")).data.rows });
+  const datasetsCatalogQuery = useQuery({ queryKey: ["datasets-catalog"], queryFn: async () => (await api.get<{ datasets: DatasetCatalogItem[] }>("/datasets")).data.datasets });
+  const modelsCatalogQuery = useQuery({ queryKey: ["models-catalog"], queryFn: async () => (await api.get<{ models: ModelCatalogItem[] }>("/models")).data.models });
+
+  const explainersQuery = useQuery({
+    queryKey: ["explainers", model?.model_id, dataset?.dataset_id],
+    enabled: Boolean(model?.model_id && dataset?.dataset_id),
+    queryFn: async () => (await api.get<CompatibilityResponse>("/explainers/compatible", { params: { model_id: model?.model_id, dataset_id: dataset?.dataset_id } })).data,
   });
 
-  const runHistoryQuery = useQuery({
-    queryKey: ["run-history"],
-    queryFn: async () => {
-      const response = await api.get<{ runs: RunHistoryItem[] }>("/runs");
-      return response.data.runs;
-    },
-  });
-
-  const runSummaryQuery = useQuery({
-    queryKey: ["run-summary"],
-    queryFn: async () => {
-      const response = await api.get<RunSummary>("/runs/summary");
-      return response.data;
-    },
-  });
-
-  const datasetsCatalogQuery = useQuery({
-    queryKey: ["datasets-catalog"],
-    queryFn: async () => {
-      const response = await api.get<{ datasets: DatasetCatalogItem[] }>("/datasets");
-      return response.data.datasets;
-    },
-  });
-
-  const modelsCatalogQuery = useQuery({
-    queryKey: ["models-catalog"],
-    queryFn: async () => {
-      const response = await api.get<{ models: ModelCatalogItem[] }>("/models");
-      return response.data.models;
-    },
-  });
-
-  const clearHistoryMutation = useMutation({
-    mutationFn: async () => {
-      await api.delete("/runs");
-    },
-    onSuccess: async () => {
-      await runHistoryQuery.refetch();
-      await runSummaryQuery.refetch();
-      setErrorMessage("Run history cleared.");
-    },
-    onError: () => setErrorMessage("Failed to clear run history."),
-  });
+  const refreshRunData = async () => {
+    await runHistoryQuery.refetch();
+    await runSummaryQuery.refetch();
+    await leaderboardQuery.refetch();
+  };
 
   const uploadDatasetMutation = useMutation({
     mutationFn: async (file: File) => {
       const data = new FormData();
       data.append("file", file);
-      const response = await api.post<DatasetResponse>("/datasets", data);
-      return response.data;
+      return (await api.post<DatasetResponse>("/datasets", data)).data;
     },
     onSuccess: (response) => {
       setDataset(response);
@@ -212,634 +182,139 @@ function App() {
 
   const trainModelMutation = useMutation({
     mutationFn: async () => {
-      if (!dataset) {
-        throw new Error("Upload a dataset first");
-      }
-      const response = await api.post<ModelResponse>("/models/train", {
-        dataset_id: dataset.dataset_id,
-        target_column: targetColumn,
-        model_type: "random_forest",
-      });
-      return response.data;
+      if (!dataset) throw new Error("Upload a dataset first");
+      return (await api.post<ModelResponse>("/models/train", { dataset_id: dataset.dataset_id, target_column: targetColumn, model_type: modelType })).data;
     },
     onSuccess: (response) => {
       setModel(response);
       void modelsCatalogQuery.refetch();
       setErrorMessage(null);
     },
-    onError: () => setErrorMessage("Model training failed. Check target column."),
+    onError: () => setErrorMessage("Model training failed. Check your data and target column."),
   });
-
-  const explainersQuery = useQuery({
-    queryKey: ["explainers", model?.model_id, dataset?.dataset_id],
-    enabled: Boolean(model?.model_id && dataset?.dataset_id),
-    queryFn: async () => {
-      const response = await api.get<CompatibilityResponse>("/explainers/compatible", {
-        params: { model_id: model?.model_id, dataset_id: dataset?.dataset_id },
-      });
-      return response.data;
-    },
-  });
-
-  useEffect(() => {
-    if (explainersQuery.data?.explainers.length) {
-      setSelectedExplainer(explainersQuery.data.explainers[0]);
-    }
-    if (explainersQuery.data?.metrics.length) {
-      setSelectedMetric(explainersQuery.data.metrics[0]);
-    }
-  }, [explainersQuery.data]);
 
   const runMutation = useMutation({
     mutationFn: async () => {
-      if (!dataset || !model) {
-        throw new Error("Upload dataset and train model first");
-      }
-      const response = await api.post<RunResponse>("/runs", {
-        dataset_id: dataset.dataset_id,
-        model_id: model.model_id,
-        explainer: selectedExplainer,
-        metric: selectedMetric,
-      });
-      return response.data;
+      if (!dataset || !model) throw new Error("Upload dataset and train model first");
+      return (await api.post<RunResponse>("/runs", { dataset_id: dataset.dataset_id, model_id: model.model_id, explainer: selectedExplainer, metric: selectedMetric })).data;
     },
     onSuccess: async () => {
-      await runHistoryQuery.refetch();
-      await runSummaryQuery.refetch();
+      await refreshRunData();
       setErrorMessage(null);
     },
     onError: () => setErrorMessage("Run failed. Confirm model + dataset are ready."),
   });
 
+  const clearHistoryMutation = useMutation({
+    mutationFn: async () => { await api.delete("/runs"); },
+    onSuccess: async () => { await refreshRunData(); setErrorMessage("Run history cleared."); },
+    onError: () => setErrorMessage("Failed to clear run history."),
+  });
+
   const batchRunMutation = useMutation({
     mutationFn: async () => {
-      if (!dataset || !model || !explainersQuery.data) {
-        throw new Error("Upload dataset, train model, and load compatible explainers first");
-      }
-
-      const requests = explainersQuery.data.explainers.flatMap((explainer) =>
-        explainersQuery.data!.metrics.map((metric) =>
-          api.post<RunResponse>("/runs", {
-            dataset_id: dataset.dataset_id,
-            model_id: model.model_id,
-            explainer,
-            metric,
-          }),
-        ),
-      );
-
-      await Promise.all(requests);
-      return requests.length;
+      if (!dataset || !model || !explainersQuery.data) throw new Error("missing state");
+      const reqs = explainersQuery.data.explainers.flatMap((explainer) => explainersQuery.data!.metrics.map((metric) => api.post<RunResponse>("/runs", { dataset_id: dataset.dataset_id, model_id: model.model_id, explainer, metric })));
+      await Promise.all(reqs);
+      return reqs.length;
     },
     onSuccess: async (count) => {
-      await runHistoryQuery.refetch();
-      await runSummaryQuery.refetch();
-      setErrorMessage(null);
+      await refreshRunData();
       setStep("results");
       setErrorMessage(`Completed ${count} comparison runs.`);
     },
-    onError: () => setErrorMessage("Batch run failed. Train model and load compatibility first."),
+    onError: () => setErrorMessage("Batch run failed."),
   });
 
-  const onFileChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] ?? null;
-    setSelectedFile(file);
-  };
+  useEffect(() => {
+    if (explainersQuery.data?.explainers.length) setSelectedExplainer(explainersQuery.data.explainers[0]);
+    if (explainersQuery.data?.metrics.length) setSelectedMetric(explainersQuery.data.metrics[0]);
+  }, [explainersQuery.data]);
 
-  const uploadSelectedFile = () => {
-    if (!selectedFile) {
-      setErrorMessage("Select a CSV file first.");
-      return;
-    }
-    uploadDatasetMutation.mutate(selectedFile);
-  };
+  const onFileChange = (event: ChangeEvent<HTMLInputElement>) => setSelectedFile(event.target.files?.[0] ?? null);
+  const uploadSelectedFile = () => selectedFile ? uploadDatasetMutation.mutate(selectedFile) : setErrorMessage("Select a CSV file first.");
+  const uploadSampleFile = () => uploadDatasetMutation.mutate(new File([SAMPLE_CSV], "sample.csv", { type: "text/csv" }));
 
-  const uploadSampleFile = () => {
-    const file = new File([SAMPLE_CSV], "sample.csv", { type: "text/csv" });
-    uploadDatasetMutation.mutate(file);
-  };
-
-  const exportRunHistory = () => {
-    const payload = JSON.stringify(runHistoryQuery.data ?? [], null, 2);
-    const blob = new Blob([payload], { type: "application/json" });
+  const exportRunReport = async () => {
+    const report = (await api.get<RunReport>("/runs/report")).data;
+    const blob = new Blob([JSON.stringify(report, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
     link.href = url;
-    link.download = "run-history.json";
+    link.download = "run-report.json";
     link.click();
     URL.revokeObjectURL(url);
   };
 
-  const filteredRuns =
-    runHistoryQuery.data
-      ?.filter((run) => historyExplainerFilter === "all" || run.explainer === historyExplainerFilter)
-      .filter((run) => historyMetricFilter === "all" || run.metric === historyMetricFilter)
-      .sort((left, right) => {
-        if (historySort === "score_desc") {
-          return right.score - left.score;
-        }
-        return new Date(right.created_at).getTime() - new Date(left.created_at).getTime();
-      }) ?? [];
+  const explainerMeta = explainersQuery.data?.explainer_details.find((x) => x.key === selectedExplainer);
+  const metricMeta = explainersQuery.data?.metric_details.find((x) => x.key === selectedMetric);
 
-  const comparisonRows: ComparisonRow[] =
-    filteredRuns.reduce<ComparisonRow[]>((rows, run) => {
-      const existing = rows.find(
-        (row) => row.explainer === run.explainer && row.metric === run.metric,
-      );
-
-      if (!existing) {
-        rows.push({
-          explainer: run.explainer,
-          metric: run.metric,
-          count: 1,
-          avgScore: run.score,
-        });
-        return rows;
-      }
-
-      const totalScore = existing.avgScore * existing.count + run.score;
-      existing.count += 1;
-      existing.avgScore = totalScore / existing.count;
-      return rows;
-    }, [])
-      .sort((a, b) => b.avgScore - a.avgScore) ?? [];
-
-  const isDark = theme === "dark";
-  const colors = {
-    background: isDark ? "#0b1020" : "#f6f8fc",
-    panel: isDark ? "#121a2f" : "#ffffff",
-    text: isDark ? "#e6ecff" : "#121212",
-    muted: isDark ? "#9fb0d6" : "#5b6170",
-    border: isDark ? "#26324f" : "#d9deea",
-    accent: isDark ? "#7aa2ff" : "#2447d5",
-    activeButton: isDark ? "#2b4bb4" : "#2447d5",
-  };
+  const comparisonRows = useMemo(() => leaderboardQuery.data ?? [], [leaderboardQuery.data]);
 
   return (
-    <main
-      style={{
-        fontFamily: "Inter, sans-serif",
-        padding: 24,
-        minHeight: "100vh",
-        background: colors.background,
-        color: colors.text,
-      }}
-    >
-      <div style={{ maxWidth: 1080, margin: "0 auto" }}>
-        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
+    <main style={{ fontFamily: "Inter, sans-serif", padding: 24, minHeight: "100vh", background: colors.background, color: colors.text }}>
+      <div style={{ maxWidth: 1100, margin: "0 auto" }}>
+        <header style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <h1 style={{ marginBottom: 8 }}>Explainiverse Studio</h1>
-            <p style={{ marginTop: 0, color: colors.muted }}>Scaffolded MVP workflow shell</p>
+            <h1 style={{ marginBottom: 6 }}>Explainiverse Studio</h1>
+            <p style={{ marginTop: 0, color: colors.muted }}>Phase 1 MVP workflow</p>
           </div>
-          <button
-            onClick={toggleTheme}
-            style={{
-              borderRadius: 999,
-              border: `1px solid ${colors.border}`,
-              background: colors.panel,
-              color: colors.text,
-              padding: "8px 14px",
-              cursor: "pointer",
-            }}
-          >
-            {isDark ? "Switch to light" : "Switch to dark"}
-          </button>
+          <button onClick={toggleTheme}>{isDark ? "Light" : "Dark"}</button>
         </header>
 
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-          {steps.map((s) => (
-            <button
-              key={s}
-              onClick={() => setStep(s)}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 8,
-                border: `1px solid ${colors.border}`,
-                background: s === step ? colors.activeButton : colors.panel,
-                color: s === step ? "#ffffff" : colors.text,
-                cursor: "pointer",
-              }}
-            >
-              {s}
-            </button>
-          ))}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 12 }}>
+          {steps.map((s) => <button key={s} onClick={() => setStep(s)}>{s}</button>)}
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "2fr 1fr", gap: 12 }}>
-          <section
-            style={{
-              border: `1px solid ${colors.border}`,
-              borderRadius: 10,
-              padding: 16,
-              background: colors.panel,
-            }}
-          >
-            <h3 style={{ marginTop: 0 }}>Live API integration check</h3>
-            <p style={{ margin: "4px 0", color: colors.muted }}>
-              API base URL: <code>{API_BASE_URL}</code>
-            </p>
-            <p style={{ margin: "4px 0" }}>
-              Health: {healthQuery.isLoading ? "loading..." : healthQuery.data?.status ?? "unavailable"}
-            </p>
+        <section style={{ border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, background: colors.panel }}>
+          <p>API: <code>{API_BASE_URL}</code> • Health: {healthQuery.data?.status ?? "..."}</p>
+          <p>Total runs: {runSummaryQuery.data?.total_runs ?? 0} • Best: {runSummaryQuery.data?.best_run?.score?.toFixed(2) ?? "—"}</p>
 
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, minmax(120px, 1fr))", gap: 8, marginTop: 10 }}>
-              <div style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 8 }}>
-                <div style={{ color: colors.muted, fontSize: 12 }}>Total runs</div>
-                <div style={{ fontWeight: 700 }}>{runSummaryQuery.data?.total_runs ?? 0}</div>
-              </div>
-              <div style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 8 }}>
-                <div style={{ color: colors.muted, fontSize: 12 }}>Explainers used</div>
-                <div style={{ fontWeight: 700 }}>{runSummaryQuery.data?.unique_explainers ?? 0}</div>
-              </div>
-              <div style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 8 }}>
-                <div style={{ color: colors.muted, fontSize: 12 }}>Metrics used</div>
-                <div style={{ fontWeight: 700 }}>{runSummaryQuery.data?.unique_metrics ?? 0}</div>
-              </div>
-              <div style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 8 }}>
-                <div style={{ color: colors.muted, fontSize: 12 }}>Best score</div>
-                <div style={{ fontWeight: 700 }}>{runSummaryQuery.data?.best_run ? runSummaryQuery.data.best_run.score.toFixed(2) : "—"}</div>
-              </div>
-            </div>
+          <div style={{ marginTop: 10 }}>
+            <input type="file" accept=".csv,text/csv" onChange={onFileChange} />
+            <button onClick={uploadSelectedFile} disabled={uploadDatasetMutation.isPending}>{uploadDatasetMutation.isPending ? "Uploading..." : "Upload CSV"}</button>
+            <button onClick={uploadSampleFile}>Upload sample dataset</button>
+          </div>
 
-            <div style={{ marginTop: 12, marginBottom: 8 }}>
-              <label>
-                Upload CSV:&nbsp;
-                <input type="file" accept=".csv,text/csv" onChange={onFileChange} />
-              </label>
-              <div style={{ display: "flex", gap: 8, marginTop: 8, flexWrap: "wrap" }}>
-                <button
-                  onClick={uploadSelectedFile}
-                  disabled={uploadDatasetMutation.isPending}
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: 8,
-                    border: `1px solid ${colors.border}`,
-                    background: colors.activeButton,
-                    color: "white",
-                    cursor: "pointer",
-                  }}
-                >
-                  Upload selected file
-                </button>
-                <button
-                  onClick={uploadSampleFile}
-                  disabled={uploadDatasetMutation.isPending}
-                  style={{
-                    padding: "8px 12px",
-                    borderRadius: 8,
-                    border: `1px solid ${colors.border}`,
-                    background: colors.activeButton,
-                    color: "white",
-                    cursor: "pointer",
-                  }}
-                >
-                  1) Upload sample dataset
-                </button>
-              </div>
-            </div>
+          {dataset ? (
+            <>
+              <p>Dataset: {dataset.dataset_id} ({dataset.rows} rows)</p>
+              <label>Target: <select value={targetColumn} onChange={(e) => setTargetColumn(e.target.value)}>{dataset.columns.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>
+              <label style={{ marginLeft: 10 }}>Model: <select value={modelType} onChange={(e) => setModelType(e.target.value)}><option value="random_forest">random_forest</option><option value="logistic_regression">logistic_regression</option><option value="linear_regression">linear_regression</option></select></label>
+              <button onClick={() => trainModelMutation.mutate()} disabled={trainModelMutation.isPending}>{trainModelMutation.isPending ? "Training..." : "Train model"}</button>
+            </>
+          ) : <p>Dataset not uploaded.</p>}
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
-              <button
-                onClick={() => trainModelMutation.mutate()}
-                disabled={!dataset || trainModelMutation.isPending}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: `1px solid ${colors.border}`,
-                  background: colors.activeButton,
-                  color: "white",
-                  cursor: "pointer",
-                }}
-              >
-                {trainModelMutation.isPending ? "Training..." : "2) Train model"}
-              </button>
+          <p>Model: {model ? `${model.model_id} (${model.model_type}, ${model.task_type}, ${model.feature_count} features)` : "not trained"}</p>
 
-              <button
-                onClick={() => runMutation.mutate()}
-                disabled={!dataset || !model || runMutation.isPending}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: `1px solid ${colors.border}`,
-                  background: colors.activeButton,
-                  color: "white",
-                  cursor: "pointer",
-                }}
-              >
-                {runMutation.isPending ? "Running..." : "3) Run experiment"}
-              </button>
+          {explainersQuery.data ? (
+            <>
+              <label>Explainer: <select value={selectedExplainer} onChange={(e) => setSelectedExplainer(e.target.value)}>{explainersQuery.data.explainers.map((x) => <option key={x}>{x}</option>)}</select></label>
+              <label style={{ marginLeft: 10 }}>Metric: <select value={selectedMetric} onChange={(e) => setSelectedMetric(e.target.value)}>{explainersQuery.data.metrics.map((x) => <option key={x}>{x}</option>)}</select></label>
+              <button onClick={() => runMutation.mutate()} disabled={runMutation.isPending}>{runMutation.isPending ? "Running..." : "Run"}</button>
+              <button onClick={() => batchRunMutation.mutate()} disabled={batchRunMutation.isPending}>{batchRunMutation.isPending ? "Running all..." : "Run all combos"}</button>
+              {explainerMeta ? <p style={{ color: colors.muted }}>Explainer: <b>{explainerMeta.label}</b> — {explainerMeta.description}</p> : null}
+              {metricMeta ? <p style={{ color: colors.muted }}>Metric: <b>{metricMeta.label}</b> — {metricMeta.description}</p> : null}
+            </>
+          ) : null}
 
-              <button
-                onClick={() => batchRunMutation.mutate()}
-                disabled={!dataset || !model || !explainersQuery.data || batchRunMutation.isPending}
-                style={{
-                  padding: "8px 12px",
-                  borderRadius: 8,
-                  border: `1px solid ${colors.border}`,
-                  background: colors.accent,
-                  color: "white",
-                  cursor: "pointer",
-                }}
-              >
-                {batchRunMutation.isPending ? "Running all..." : "Run all explainer × metric combos"}
-              </button>
-            </div>
+          {errorMessage ? <p style={{ color: errorMessage.startsWith("Completed") ? "#8fffb2" : "#ff8a8a" }}>{errorMessage}</p> : null}
+        </section>
 
-            {dataset ? (
-              <div style={{ marginTop: 12, borderTop: `1px solid ${colors.border}`, paddingTop: 12 }}>
-                <p style={{ margin: "4px 0" }}>
-                  Dataset: {dataset.dataset_id} ({dataset.rows} rows) from <strong>{dataset.filename}</strong>
-                </p>
-                <label>
-                  Target column:&nbsp;
-                  <select
-                    value={targetColumn}
-                    onChange={(event) => setTargetColumn(event.target.value)}
-                    style={{ background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
-                  >
-                    {dataset.columns.map((column) => (
-                      <option key={column} value={column}>
-                        {column}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <details style={{ marginTop: 8 }}>
-                  <summary>Dataset preview / schema</summary>
-                  <pre
-                    style={{
-                      border: `1px solid ${colors.border}`,
-                      borderRadius: 8,
-                      padding: 12,
-                      background: isDark ? "#0d1529" : "#f8f9fd",
-                      color: colors.muted,
-                      overflowX: "auto",
-                    }}
-                  >
-                    {JSON.stringify(
-                      {
-                        columns: dataset.columns,
-                        dtypes: dataset.dtypes,
-                        missing_values: dataset.missing_values,
-                        preview: dataset.preview,
-                      },
-                      null,
-                      2,
-                    )}
-                  </pre>
-                </details>
-              </div>
-            ) : (
-              <p style={{ margin: "8px 0 4px" }}>Dataset: not uploaded</p>
-            )}
+        <section style={{ marginTop: 12, border: `1px solid ${colors.border}`, borderRadius: 10, padding: 16, background: colors.panel }}>
+          <h3>Leaderboard</h3>
+          {!comparisonRows.length ? <p>No runs yet.</p> : (
+            <ul>
+              {comparisonRows.map((row) => <li key={`${row.explainer}-${row.metric}`}>{row.explainer} • {row.metric} — avg {row.avg_score.toFixed(3)} (n={row.count})</li>)}
+            </ul>
+          )}
+          <button onClick={() => clearHistoryMutation.mutate()} disabled={clearHistoryMutation.isPending}>Clear history</button>
+          <button onClick={() => void exportRunReport()} disabled={!runHistoryQuery.data?.length}>Export run report JSON</button>
 
-            <p style={{ margin: "4px 0" }}>
-              Model: {model ? `${model.model_id} (${model.model_type})` : "not trained"}
-            </p>
-
-            {explainersQuery.data ? (
-              <div style={{ display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
-                <label>
-                  Explainer:&nbsp;
-                  <select
-                    value={selectedExplainer}
-                    onChange={(event) => setSelectedExplainer(event.target.value)}
-                    style={{ background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
-                  >
-                    {explainersQuery.data.explainers.map((explainer) => (
-                      <option key={explainer} value={explainer}>
-                        {explainer}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label>
-                  Metric:&nbsp;
-                  <select
-                    value={selectedMetric}
-                    onChange={(event) => setSelectedMetric(event.target.value)}
-                    style={{ background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
-                  >
-                    {explainersQuery.data.metrics.map((metric) => (
-                      <option key={metric} value={metric}>
-                        {metric}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              </div>
-            ) : (
-              <>
-                <p style={{ margin: "4px 0" }}>Compatible explainers: train model first</p>
-                <p style={{ margin: "4px 0" }}>Suggested metrics: train model first</p>
-              </>
-            )}
-
-            {errorMessage ? (
-              <p
-                style={{
-                  color: errorMessage.startsWith("Completed") ? "#8fffb2" : "#ff8a8a",
-                  marginTop: 12,
-                }}
-              >
-                {errorMessage}
-              </p>
-            ) : null}
-
-            {runMutation.data ? (
-              <pre
-                style={{
-                  marginTop: 12,
-                  border: `1px solid ${colors.border}`,
-                  borderRadius: 8,
-                  padding: 12,
-                  background: isDark ? "#0d1529" : "#f8f9fd",
-                  color: colors.muted,
-                  overflowX: "auto",
-                }}
-              >
-                {JSON.stringify(runMutation.data, null, 2)}
-              </pre>
-            ) : null}
-          </section>
-
-          <aside
-            style={{
-              border: `1px solid ${colors.border}`,
-              borderRadius: 10,
-              padding: 16,
-              background: colors.panel,
-              height: "fit-content",
-            }}
-          >
-            <h3 style={{ marginTop: 0 }}>Run history</h3>
-            <div style={{ display: "grid", gap: 8, marginBottom: 10 }}>
-              <label style={{ color: colors.muted, fontSize: 13 }}>
-                Filter explainer
-                <select
-                  value={historyExplainerFilter}
-                  onChange={(event) => setHistoryExplainerFilter(event.target.value)}
-                  style={{ width: "100%", marginTop: 4, background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
-                >
-                  <option value="all">all</option>
-                  {(runHistoryQuery.data ?? []).map((run) => run.explainer).filter((value, index, arr) => arr.indexOf(value) === index).map((explainer) => (
-                    <option key={explainer} value={explainer}>{explainer}</option>
-                  ))}
-                </select>
-              </label>
-
-              <label style={{ color: colors.muted, fontSize: 13 }}>
-                Filter metric
-                <select
-                  value={historyMetricFilter}
-                  onChange={(event) => setHistoryMetricFilter(event.target.value)}
-                  style={{ width: "100%", marginTop: 4, background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
-                >
-                  <option value="all">all</option>
-                  {(runHistoryQuery.data ?? []).map((run) => run.metric).filter((value, index, arr) => arr.indexOf(value) === index).map((metric) => (
-                    <option key={metric} value={metric}>{metric}</option>
-                  ))}
-                </select>
-              </label>
-
-              <label style={{ color: colors.muted, fontSize: 13 }}>
-                Sort
-                <select
-                  value={historySort}
-                  onChange={(event) => setHistorySort(event.target.value as "newest" | "score_desc")}
-                  style={{ width: "100%", marginTop: 4, background: colors.panel, color: colors.text, border: `1px solid ${colors.border}` }}
-                >
-                  <option value="newest">newest run</option>
-                  <option value="score_desc">highest score</option>
-                </select>
-              </label>
-
-              <button
-                onClick={() => clearHistoryMutation.mutate()}
-                disabled={!runHistoryQuery.data?.length || clearHistoryMutation.isPending}
-                style={{
-                  padding: "7px 10px",
-                  borderRadius: 8,
-                  border: `1px solid ${colors.border}`,
-                  background: isDark ? "#3a1722" : "#fce8ee",
-                  color: isDark ? "#ffd8df" : "#8a1f3a",
-                  cursor: "pointer",
-                }}
-              >
-                {clearHistoryMutation.isPending ? "Clearing..." : "Clear run history"}
-              </button>
-
-              <button
-                onClick={exportRunHistory}
-                disabled={!runHistoryQuery.data?.length}
-                style={{
-                  padding: "7px 10px",
-                  borderRadius: 8,
-                  border: `1px solid ${colors.border}`,
-                  background: isDark ? "#1b2a45" : "#e8eefc",
-                  color: isDark ? "#cfe1ff" : "#1b3b8a",
-                  cursor: "pointer",
-                }}
-              >
-                Export run history JSON
-              </button>
-            </div>
-
-            {!filteredRuns.length ? (
-              <p style={{ color: colors.muted }}>No runs yet.</p>
-            ) : (
-              <ul style={{ listStyle: "none", padding: 0, margin: 0, display: "grid", gap: 8 }}>
-                {filteredRuns.map((run) => (
-                  <li
-                    key={run.run_id}
-                    style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 10 }}
-                  >
-                    <div style={{ fontWeight: 600 }}>{run.run_id}</div>
-                    <div style={{ color: colors.muted, fontSize: 13 }}>
-                      {run.explainer} • {run.metric}
-                    </div>
-                    <div style={{ color: colors.muted, fontSize: 13 }}>
-                      dataset {run.dataset_id} • model {run.model_id}
-                    </div>
-                    <div style={{ marginTop: 4 }}>score: {run.score.toFixed(2)}</div>
-                    <div style={{ color: colors.muted, fontSize: 12 }}>
-                      {new Date(run.created_at).toLocaleString()}
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            )}
-
-            <h3 style={{ marginTop: 16 }}>Explainer vs Metric</h3>
-            {!comparisonRows.length ? (
-              <p style={{ color: colors.muted, marginBottom: 0 }}>Run experiments to populate comparison stats.</p>
-            ) : (
-              <div style={{ display: "grid", gap: 8 }}>
-                {comparisonRows.map((row) => (
-                  <div
-                    key={`${row.explainer}-${row.metric}`}
-                    style={{ border: `1px solid ${colors.border}`, borderRadius: 8, padding: 10 }}
-                  >
-                    <div style={{ display: "flex", justifyContent: "space-between", gap: 8 }}>
-                      <strong>{row.explainer}</strong>
-                      <span style={{ color: colors.muted }}>{row.metric}</span>
-                    </div>
-                    <div style={{ marginTop: 6, fontSize: 13, color: colors.muted }}>
-                      runs: {row.count} • average score: {row.avgScore.toFixed(2)}
-                    </div>
-                    <div
-                      style={{
-                        marginTop: 8,
-                        height: 8,
-                        borderRadius: 6,
-                        background: isDark ? "#1f2740" : "#e3e8f5",
-                        overflow: "hidden",
-                      }}
-                    >
-                      <div
-                        style={{
-                          width: `${Math.min(100, Math.max(0, row.avgScore * 100))}%`,
-                          height: "100%",
-                          background: colors.accent,
-                        }}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <h3 style={{ marginTop: 16 }}>Saved assets</h3>
-            <p style={{ color: colors.muted, margin: "6px 0" }}>
-              datasets: {datasetsCatalogQuery.data?.length ?? 0} • models: {modelsCatalogQuery.data?.length ?? 0}
-            </p>
-            {datasetsCatalogQuery.data?.length ? (
-              <details>
-                <summary>Datasets</summary>
-                <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0, display: "grid", gap: 6 }}>
-                  {datasetsCatalogQuery.data.map((item) => (
-                    <li key={item.dataset_id} style={{ fontSize: 12, color: colors.muted }}>
-                      {item.dataset_id} • {item.filename} • {item.rows} rows
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
-            {modelsCatalogQuery.data?.length ? (
-              <details style={{ marginTop: 8 }}>
-                <summary>Models</summary>
-                <ul style={{ listStyle: "none", margin: "8px 0 0", padding: 0, display: "grid", gap: 6 }}>
-                  {modelsCatalogQuery.data.map((item) => (
-                    <li key={item.model_id} style={{ fontSize: 12, color: colors.muted }}>
-                      {item.model_id} • {item.model_type} • dataset {item.dataset_id}
-                    </li>
-                  ))}
-                </ul>
-              </details>
-            ) : null}
-          </aside>
-        </div>
+          <h3>Saved assets</h3>
+          <p>datasets: {datasetsCatalogQuery.data?.length ?? 0} • models: {modelsCatalogQuery.data?.length ?? 0}</p>
+          <p>Current step: {step}</p>
+        </section>
       </div>
     </main>
   );

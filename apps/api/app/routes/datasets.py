@@ -38,6 +38,7 @@ async def upload_dataset(file: UploadFile) -> dict:
         columns=[str(column) for column in dataframe.columns],
     )
     store.datasets[dataset_id] = record
+    store.dataset_frames[dataset_id] = dataframe.copy()
 
     missing = dataframe.isnull().sum().to_dict()
     dtypes = {column: str(dtype) for column, dtype in dataframe.dtypes.items()}

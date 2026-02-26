@@ -61,9 +61,9 @@ cp apps/web/.env.example apps/web/.env
 
 1. Click **Upload sample dataset**
 2. Click **Train model**
-3. Pick explainer + metric
+3. Select target + model type, then pick explainer + metric
 4. Click **Run experiment** (or **Run all explainer × metric combos**)
-5. Verify run history, comparison panel, and JSON export
+5. Verify run history, leaderboard comparison panel, and JSON report export
 
 ---
 
@@ -100,6 +100,7 @@ See [`docs/RUN_AND_DEPLOY.md`](docs/RUN_AND_DEPLOY.md) for:
 
 - Dataset upload + profiling (`POST /datasets`)
 - Model training against selected target (`POST /models/train`)
-- Compatibility lookup (`GET /explainers/compatible`)
+- Compatibility lookup + metadata (`GET /explainers/compatible`)
 - Run execution + history (`POST /runs`, `GET /runs`, `DELETE /runs`)
+- Aggregated leaderboard + reproducibility report (`GET /runs/leaderboard`, `GET /runs/report`)
 - Saved asset listing (`GET /datasets`, `GET /models`)

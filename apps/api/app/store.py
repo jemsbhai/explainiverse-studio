@@ -19,6 +19,7 @@ class ModelRecord:
     dataset_id: str
     target_column: str
     model_type: str
+    task_type: str
 
 
 @dataclass
@@ -37,6 +38,11 @@ class InMemoryStore:
         self.datasets: dict[str, DatasetRecord] = {}
         self.models: dict[str, ModelRecord] = {}
         self.runs: dict[str, RunRecord] = {}
+
+        # Runtime assets for MVP execution.
+        self.dataset_frames: dict[str, Any] = {}
+        self.model_objects: dict[str, Any] = {}
+        self.model_features: dict[str, list[str]] = {}
 
     def next_id(self, prefix: str, existing: dict[str, Any]) -> str:
         return f"{prefix}_{len(existing) + 1:03d}"

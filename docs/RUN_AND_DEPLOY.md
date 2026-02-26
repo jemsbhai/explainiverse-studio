@@ -123,6 +123,17 @@ If deployment fails, first reproduce with the same commands locally.
 
 Current backend storage is in-memory for speed of iteration. Data resets on restart.
 
+
+Current Phase-1 API vertical slice includes:
+
+- `POST /datasets` (upload + profiling)
+- `POST /models/train` (model training with task-type inference)
+- `GET /explainers/compatible` (compatibility + explainer/metric metadata)
+- `POST /runs` (metric execution MVP)
+- `GET /runs/leaderboard` (aggregated ranking)
+- `GET /runs/report` (portable JSON report)
+- `GET /runs`, `DELETE /runs` (history management)
+
 Before production use, plan migration to:
 
 - durable DB for runs/datasets/models
