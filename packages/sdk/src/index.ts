@@ -46,6 +46,16 @@ export type Phase2BatchJob = {
   results: { explainer: string; metric: string; score: number; status: string }[];
 };
 
+export type Phase2Artifact = {
+  artifact_key: string;
+  overlay_uri: string;
+  sample_ref: string;
+  method: string;
+  grid_shape: [number, number];
+  heatmap_grid: number[][];
+  generated_at: string;
+};
+
 export class ExplainiverseStudioClient {
   constructor(private readonly baseUrl: string) {}
 
@@ -86,6 +96,12 @@ export class ExplainiverseStudioClient {
       body: JSON.stringify({ model_id: modelId }),
     });
     if (!response.ok) throw new Error(`Failed to validate model artifact: ${response.status}`);
+    return response.json();
+  }
+
+  async getPhase2Artifact(artifactKey: string): Promise<Phase2Artifact> {
+    const response = await fetch(`${this.baseUrl}/phase2/artifacts/${encodeURIComponent(artifactKey)}`);
+    if (!response.ok) throw new Error(`Failed to fetch phase2 artifact: ${response.status}`);
     return response.json();
   }
 }

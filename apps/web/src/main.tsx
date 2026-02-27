@@ -98,6 +98,16 @@ type SaliencyPreviewResponse = {
   artifact: { artifact_key: string; overlay_uri: string; heatmap_stats: { min: number; max: number; mean: number } };
 };
 
+type Phase2ArtifactResponse = {
+  artifact_key: string;
+  overlay_uri: string;
+  sample_ref: string;
+  method: string;
+  grid_shape: [number, number];
+  heatmap_grid: number[][];
+  generated_at: string;
+};
+
 type Phase2BatchCreateResponse = {
   job_id: string;
   status: string;
@@ -215,6 +225,7 @@ function App() {
   const [batchMetrics, setBatchMetrics] = useState("comprehensiveness,sufficiency");
   const [batchJob, setBatchJob] = useState<Phase2BatchJob | null>(null);
   const [artifactValidation, setArtifactValidation] = useState<ValidateArtifactResponse | null>(null);
+  const [phase2Artifact, setPhase2Artifact] = useState<Phase2ArtifactResponse | null>(null);
 
   const phase2JobsQuery = useQuery({
     queryKey: ["phase2-jobs"],
@@ -379,6 +390,7 @@ function App() {
     },
     onSuccess: (response) => {
       setSaliencyPreview(response);
+      setPhase2Artifact(null);
       setErrorMessage("Phase 2 saliency preview contract generated.");
     },
     onError: () => setErrorMessage("Saliency preview generation failed."),
@@ -419,6 +431,20 @@ function App() {
       setErrorMessage("Phase 2 batch job started.");
     },
     onError: () => setErrorMessage("Phase 2 batch run failed."),
+  });
+
+  const fetchPhase2ArtifactMutation = useMutation({
+    mutationFn: async () => {
+      if (!saliencyPreview) throw new Error("Generate saliency preview first");
+      return (
+        await api.get<Phase2ArtifactResponse>(`/phase2/artifacts/${encodeURIComponent(saliencyPreview.artifact.artifact_key)}`)
+      ).data;
+    },
+    onSuccess: (response) => {
+      setPhase2Artifact(response);
+      setErrorMessage("Phase 2 artifact fetched.");
+    },
+    onError: () => setErrorMessage("Failed to fetch phase 2 artifact."),
   });
 
   const cancelBatchRunMutation = useMutation({
@@ -543,6 +569,9 @@ function App() {
             <button onClick={() => saliencyPreviewMutation.mutate()} disabled={saliencyPreviewMutation.isPending || !manifest || !uploadedModel}>
               {saliencyPreviewMutation.isPending ? "Generating..." : "Generate saliency preview (stub)"}
             </button>
+            <button onClick={() => fetchPhase2ArtifactMutation.mutate()} disabled={fetchPhase2ArtifactMutation.isPending || !saliencyPreview}>
+              {fetchPhase2ArtifactMutation.isPending ? "Fetching..." : "Fetch saliency artifact"}
+            </button>
 
             <label>Batch explainers (csv): <input value={batchExplainers} onChange={(e) => setBatchExplainers(e.target.value)} /></label>
             <label>Batch metrics (csv): <input value={batchMetrics} onChange={(e) => setBatchMetrics(e.target.value)} /></label>
@@ -555,6 +584,7 @@ function App() {
           {uploadedModel ? <p style={{ color: colors.muted }}>Model: {uploadedModel.model_id} ({uploadedModel.framework})</p> : null}
           {artifactValidation ? <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(artifactValidation, null, 2)}</pre> : null}
           {saliencyPreview ? <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(saliencyPreview, null, 2)}</pre> : null}
+          {phase2Artifact ? <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(phase2Artifact, null, 2)}</pre> : null}
           {batchJob ? <pre style={{ whiteSpace: "pre-wrap" }}>{JSON.stringify(batchJob, null, 2)}</pre> : null}
 
           <h4>Batch jobs</h4>

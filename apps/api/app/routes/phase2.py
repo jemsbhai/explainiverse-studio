@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
@@ -144,6 +145,20 @@ def saliency_preview(payload: SaliencyPreviewRequest) -> dict:
     generated_at = datetime.now(timezone.utc).isoformat()
     artifact_key = f"saliency/{payload.model_id}/{payload.sample_ref.replace('/', '_')}.json"
 
+    seed = int(hashlib.sha256(f"{payload.model_id}:{payload.sample_ref}".encode()).hexdigest()[:8], 16)
+    heatmap = [round(((seed >> (idx % 16)) % 97) / 96, 3) for idx in range(16)]
+    heatmap_grid = [heatmap[i : i + 4] for i in range(0, 16, 4)]
+    artifact_payload = {
+        "artifact_key": artifact_key,
+        "overlay_uri": f"memory://{artifact_key}",
+        "sample_ref": payload.sample_ref,
+        "method": payload.method,
+        "grid_shape": [4, 4],
+        "heatmap_grid": heatmap_grid,
+        "generated_at": generated_at,
+    }
+    store.phase2_artifacts[artifact_key] = artifact_payload
+
     # Phase-2 thin-slice contract: placeholder payload shape for downstream UI wiring.
     return {
         "status": "queued_stub",
@@ -159,3 +174,11 @@ def saliency_preview(payload: SaliencyPreviewRequest) -> dict:
             "heatmap_stats": {"min": 0.0, "max": 1.0, "mean": 0.42},
         },
     }
+
+
+@router.get("/artifacts/{artifact_key:path}")
+def get_phase2_artifact(artifact_key: str) -> dict:
+    artifact = store.phase2_artifacts.get(artifact_key)
+    if not artifact:
+        raise HTTPException(status_code=404, detail="Artifact not found")
+    return artifact

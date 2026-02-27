@@ -51,6 +51,7 @@ class InMemoryStore:
         # Phase-2 prep: image dataset manifests.
         self.image_manifests: dict[str, dict[str, Any]] = {}
         self.phase2_jobs: dict[str, dict[str, Any]] = {}
+        self.phase2_artifacts: dict[str, dict[str, Any]] = {}
 
     def next_id(self, prefix: str, existing: dict[str, Any]) -> str:
         return f"{prefix}_{len(existing) + 1:03d}"

@@ -22,7 +22,10 @@ Thin-slice delivered in this repo:
 
 - Saliency preview contract endpoint (Phase 2 stub):
   - `POST /phase2/saliency-preview`
-  - returns artifact contract payload (`artifact_key`, `overlay_uri`, `heatmap_stats`) for UI integration
+  - stores an in-memory saliency artifact payload and returns artifact contract metadata
+- Saliency artifact retrieval endpoint:
+  - `GET /phase2/artifacts/{artifact_key}`
+  - returns generated heatmap grid payload for UI integration
 - Batch execution + polling stub endpoints:
   - `POST /phase2/batch-runs`
   - `GET /phase2/batch-runs/{job_id}`
